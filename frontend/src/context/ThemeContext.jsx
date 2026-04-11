@@ -5,29 +5,28 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
+  // Read from localStorage on first render — same key as index.html script
   const [theme, setTheme] = useState(() => {
-    // Always read from localStorage on init
-    return localStorage.getItem('sw_theme') || 'dark';
+    try {
+      return localStorage.getItem('sw_theme') || 'dark';
+    } catch {
+      return 'dark';
+    }
   });
 
   useEffect(() => {
-    // Apply theme to document
+    // Keep DOM attribute in sync with state
     document.documentElement.setAttribute('data-theme', theme);
-    document.body.setAttribute('data-theme', theme);
-    localStorage.setItem('sw_theme', theme);
+    try {
+      localStorage.setItem('sw_theme', theme);
+    } catch {}
   }, [theme]);
 
-  // Also apply on mount immediately to prevent flash
-  useEffect(() => {
-    const saved = localStorage.getItem('sw_theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', saved);
-    document.body.setAttribute('data-theme', saved);
-  }, []);
-
-  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  const toggleTheme = () =>
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
