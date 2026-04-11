@@ -1,29 +1,31 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-    <meta name="theme-color" content="#1D9E75" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="SpendWise" />
-    <meta name="description" content="AI-powered financial assistant" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>SpendWise — AI Finance</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-    <title>SpendWise — AI Finance</title>
-    <!-- Apply theme BEFORE any JS loads to prevent flash -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!--
+      CRITICAL: Apply theme before React loads to prevent flash.
+      This runs synchronously before any JS or CSS.
+    -->
     <script>
       (function() {
-        var saved = localStorage.getItem('sw_theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', saved);
-        document.documentElement.style.background = saved === 'light' ? '#F2F2F0' : '#0D0D0D';
+        try {
+          var theme = localStorage.getItem('sw_theme') || 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch(e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
       })();
     </script>
     <style>
-      /* Critical CSS to prevent white flash */
-      html, body { background: #0D0D0D; }
-      html[data-theme="light"], html[data-theme="light"] body { background: #F2F2F0; }
+      /* Prevent white flash before CSS loads */
+      html                        { background: #030712; color: #F1F5F9; }
+      html[data-theme="light"]    { background: #F8FAFC; color: #0F172A; }
     </style>
   </head>
   <body>

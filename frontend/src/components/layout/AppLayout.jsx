@@ -5,37 +5,66 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ArrowLeftRight, BarChart2, Users, UserCheck,
   Target, Sparkles, Settings, LogOut, Menu, X, Bell,
+  TrendingUp, CreditCard,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth }  from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import FoxMascot from '../FoxMascot';
 import NotificationsPanel from '../NotificationsPanel';
-import ProfilePanel from '../ProfilePanel';
+import ProfilePanel       from '../ProfilePanel';
 import MonthlyIncomePopup, { shouldShowIncomePopup } from '../MonthlyIncomePopup';
 import toast from 'react-hot-toast';
 import './AppLayout.css';
 
 const NAV_ITEMS = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/transactions', icon: ArrowLeftRight,  label: 'Transactions' },
-  { to: '/analytics',    icon: BarChart2,       label: 'Analytics' },
-  { to: '/groups',       icon: Users,           label: 'Groups' },
-  { to: '/friends',      icon: UserCheck,       label: 'Friends' },
-  { to: '/goals',        icon: Target,          label: 'Goals' },
-  { to: '/ai-assistant', icon: Sparkles,        label: 'AI Assistant' },
-  { to: '/settings',     icon: Settings,        label: 'Settings' },
+  {
+    section: 'Overview',
+    items: [
+      { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
+      { to: '/transactions', icon: ArrowLeftRight,  label: 'Transactions' },
+      { to: '/analytics',    icon: BarChart2,       label: 'Analytics'    },
+    ]
+  },
+  {
+    section: 'Social',
+    items: [
+      { to: '/groups',  icon: Users,     label: 'Groups'  },
+      { to: '/friends', icon: UserCheck, label: 'Friends' },
+    ]
+  },
+  {
+    section: 'Tools',
+    items: [
+      { to: '/goals',        icon: Target,   label: 'Goals'        },
+      { to: '/ai-assistant', icon: Sparkles, label: 'AI Assistant' },
+      { to: '/settings',     icon: Settings, label: 'Settings'     },
+    ]
+  },
 ];
+
+const PAGE_TITLES = {
+  '/dashboard':    'Dashboard',
+  '/transactions': 'Transactions',
+  '/analytics':    'Analytics',
+  '/groups':       'Groups',
+  '/friends':      'Friends',
+  '/goals':        'Goals & Score',
+  '/ai-assistant': 'AI Assistant',
+  '/settings':     'Settings',
+};
 
 const AppLayout = () => {
   const { user, logout }       = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate  = useNavigate();
   const location  = useLocation();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifs,  setShowNotifs]  = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showIncome,  setShowIncome]  = useState(false);
   const [notifCount,  setNotifCount]  = useState(0);
+
+  const pageTitle = PAGE_TITLES[location.pathname] || 'SpendWise';
 
   useEffect(() => {
     if (shouldShowIncomePopup()) {
@@ -59,43 +88,68 @@ const AppLayout = () => {
 
   const handleLogout = async () => {
     await logout();
-    toast.success('Logged out successfully');
+    toast.success('Logged out');
     navigate('/login');
   };
 
-  const toggleNotifs = () => {
+  const openNotifs = () => {
     setShowNotifs(p => !p);
     setShowProfile(false);
     if (!showNotifs) setNotifCount(0);
   };
 
-  const toggleProfile = () => {
+  const openProfile = () => {
     setShowProfile(p => !p);
     setShowNotifs(false);
   };
 
   return (
     <div className="app-layout">
-      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && (
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+      )}
 
       {/* ── Sidebar ── */}
       <aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}>
-        <div className="sidebar__logo" onClick={() => { navigate("/dashboard"); setSidebarOpen(false); }} style={{ cursor: "pointer" }} title="Go to Dashboard">
+
+        {/* Logo */}
+        <div
+          className="sidebar__logo"
+          onClick={() => { navigate('/dashboard'); setSidebarOpen(false); }}
+          title="Dashboard"
+        >
           <div className="sidebar__logo-icon">SW</div>
           <span className="sidebar__logo-text">SpendWise</span>
-          <button className="sidebar__close" onClick={() => setSidebarOpen(false)}><X size={18}/></button>
+          <button
+            className="sidebar__close"
+            onClick={e => { e.stopPropagation(); setSidebarOpen(false); }}
+          >
+            <X size={16} />
+          </button>
         </div>
 
+        {/* Nav — grouped sections */}
         <nav className="sidebar__nav">
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to}
-              className={({ isActive }) => `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`}
-              onClick={() => setSidebarOpen(false)}>
-              <Icon size={17}/><span>{label}</span>
-            </NavLink>
+          {NAV_ITEMS.map(({ section, items }) => (
+            <React.Fragment key={section}>
+              <div className="sidebar__nav-section">{section}</div>
+              {items.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to} to={to}
+                  className={({ isActive }) =>
+                    `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
+                  }
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <Icon size={15} />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </React.Fragment>
           ))}
         </nav>
 
+        {/* User */}
         <div className="sidebar__user">
           <div className="sidebar__avatar">
             {user?.initials || user?.name?.slice(0,2).toUpperCase() || 'U'}
@@ -105,48 +159,49 @@ const AppLayout = () => {
             <span className="sidebar__user-plan">{user?.plan || 'free'} plan</span>
           </div>
           <button className="sidebar__logout" onClick={handleLogout} title="Logout">
-            <LogOut size={15}/>
+            <LogOut size={14} />
           </button>
         </div>
       </aside>
 
       {/* ── Main ── */}
       <div className="main-wrapper">
+
+        {/* ── Header ── */}
         <header className="header" style={{ position: 'relative' }}>
-
-          {/* LEFT — hamburger + brand */}
-          <div className="header__left">
-            <button className="header__menu" onClick={() => setSidebarOpen(true)}><Menu size={20}/></button>
-            <div className="header__brand">
-              <span>SpendWise</span>
-            </div>
+          <button className="header__menu" onClick={() => setSidebarOpen(true)}>
+            <Menu size={19} />
+          </button>
+          <div className="header__brand">
+            <TrendingUp size={16} color="var(--color-primary)" />
+            <span>SpendWise</span>
           </div>
 
-          {/* CENTRE — 🦊 Fox mascot */}
-          <div className="header__centre">
-            <FoxMascot />
-          </div>
+          {/* Page title — desktop */}
+          <span className="header__breadcrumb" style={{ display: 'none' }}>
+            {pageTitle}
+          </span>
 
-          {/* RIGHT — theme, bell, avatar */}
-          <div className="header__right">
+          <div className="header__actions">
+            {/* Theme toggle */}
             <button className="header__btn" onClick={toggleTheme} title="Toggle theme">
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
 
+            {/* Notifications */}
             <button
-              className={`header__btn header__btn--icon ${showNotifs ? 'active' : ''}`}
-              onClick={toggleNotifs}
+              className={`header__btn ${showNotifs ? 'active' : ''}`}
+              onClick={openNotifs}
               title="Notifications"
             >
-              <Bell size={18}/>
-              {notifCount > 0 && (
-                <span className="notif-dot">{notifCount > 9 ? '9+' : notifCount}</span>
-              )}
+              <Bell size={17} />
+              {notifCount > 0 && <span className="header__notif-dot" />}
             </button>
 
+            {/* Profile */}
             <button
               className={`header__avatar-btn ${showProfile ? 'active' : ''}`}
-              onClick={toggleProfile}
+              onClick={openProfile}
               title={user?.name}
             >
               {user?.initials || user?.name?.slice(0,2).toUpperCase() || 'U'}
@@ -154,18 +209,27 @@ const AppLayout = () => {
           </div>
 
           {/* Panels */}
-          {showNotifs  && <NotificationsPanel onClose={() => setShowNotifs(false)}/>}
-          {showProfile && <ProfilePanel       onClose={() => setShowProfile(false)}/>}
+          {showNotifs && (
+            <div className="header-panel">
+              <NotificationsPanel onClose={() => setShowNotifs(false)} />
+            </div>
+          )}
+          {showProfile && (
+            <div className="header-panel">
+              <ProfilePanel onClose={() => setShowProfile(false)} />
+            </div>
+          )}
         </header>
 
+        {/* ── Content ── */}
         <main className="main-content">
           <div key={location.pathname} className="page-transition">
-            <Outlet/>
+            <Outlet />
           </div>
         </main>
       </div>
 
-      {showIncome && <MonthlyIncomePopup onClose={() => setShowIncome(false)}/>}
+      {showIncome && <MonthlyIncomePopup onClose={() => setShowIncome(false)} />}
     </div>
   );
 };

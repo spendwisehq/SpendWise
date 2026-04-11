@@ -1,25 +1,12 @@
 // frontend/src/main.jsx
+// ⚠️ ONLY import App here — NO CSS imports in this file
 
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { registerSW } from 'virtual:pwa-register';
-import './index.css';
-import App from './App.jsx';
-
-// Register Service Worker
-const updateSW = registerSW({
-  onNeedRefresh() {
-    if (confirm('New version available! Click OK to update.')) {
-      updateSW(true);
-    }
-  },
-  onOfflineReady() {
-    console.log('✅ SpendWise is ready to work offline!');
-  },
-});
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
   </StrictMode>,
-);
+)
