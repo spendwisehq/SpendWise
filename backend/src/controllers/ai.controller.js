@@ -1,6 +1,13 @@
 // backend/src/controllers/ai.controller.js
 
-const { askClaude, askClaudeJSON } = require('../services/groq.service');
+const { askLLM, askLLMJSON, askLLMStream, FALLBACK_MODEL } = require('../services/groq.service');
+const { trackTokens }        = require('../services/tokenTracking.service');
+const { getCached, setCache } = require('../services/aiCache.service');
+const { sanitizeInput }       = require('../utils/sanitize');
+const { categorize, categorizeBatch }     = require('../prompts/categorize');
+const { spendingAnalysis }                = require('../prompts/analysis');
+const { insights: insightsPrompt, recommendations: recommendationsPrompt, financialScore: scorePrompt } = require('../prompts/insights');
+const { chat: chatPrompt }               = require('../prompts/chat');
 const Transaction = require('../models/Transaction.model');
 const Category    = require('../models/Category.model');
 const User        = require('../models/User.model');
@@ -25,7 +32,6 @@ const getUserFinancialData = async (userId, months = 3) => {
     User.findById(userId).lean(),
   ]);
 
-  // Summarize by category
   const categoryTotals = {};
   transactions.forEach(t => {
     if (t.type === 'expense') {
@@ -42,33 +48,20 @@ const getUserFinancialData = async (userId, months = 3) => {
     .filter(t => t.type === 'income')
     .reduce((s, t) => s + t.amount, 0);
 
-  return {
-    transactions,
-    categories,
-    user,
-    categoryTotals,
-    totalExpense,
-    totalIncome,
-    currency: user?.currency || 'INR',
-  };
+  return { transactions, categories, user, categoryTotals, totalExpense, totalIncome, currency: user?.currency || 'INR' };
 };
 
 //─────────────────────────────────────
 // 1. POST /api/ai/categorize
-// Smart categorization of a transaction
 //─────────────────────────────────────
 const categorizeTransaction = async (req, res, next) => {
   try {
     const { merchant, description, amount, type } = req.body;
 
     if (!merchant && !description) {
-      return res.status(400).json({
-        success: false,
-        message: 'merchant or description is required.',
-      });
+      return res.status(400).json({ success: false, message: 'merchant or description is required.' });
     }
 
-    // Get available categories
     const categories = await Category.find({
       isActive: true,
       $or: [{ isSystem: true }, { userId: req.user._id }],
@@ -78,28 +71,17 @@ const categorizeTransaction = async (req, res, next) => {
       .map(c => `${c.name} (${c.type}) — keywords: ${c.keywords.join(', ')}`)
       .join('\n');
 
-    const systemPrompt = `You are a financial transaction categorizer for an Indian expense tracking app.
-Given transaction details, pick the BEST matching category from the provided list.
-Respond ONLY with valid JSON. No explanation.`;
+    const prompts = categorize({
+      merchant: sanitizeInput(merchant, 200),
+      description: sanitizeInput(description, 500),
+      amount,
+      type,
+      categoryList,
+    });
 
-    const userPrompt = `Transaction:
-- Merchant/Description: ${merchant || description}
-- Amount: ${amount || 'unknown'}
-- Type: ${type || 'expense'}
+    const { data: result, usage } = await askLLMJSON(prompts.system, prompts.user, { model: FALLBACK_MODEL });
+    await trackTokens(req.user._id, usage);
 
-Available categories:
-${categoryList}
-
-Respond with JSON:
-{
-  "categoryName": "exact category name from list",
-  "confidence": 0-100,
-  "reason": "one line explanation"
-}`;
-
-    const result = await askClaudeJSON(systemPrompt, userPrompt);
-
-    // Find the matched category object
     const matched = categories.find(
       c => c.name.toLowerCase() === result.categoryName?.toLowerCase()
     );
@@ -107,12 +89,12 @@ Respond with JSON:
     return res.status(200).json({
       success: true,
       data: {
-        categoryId:   matched?._id   || null,
-        categoryName: matched?.name  || result.categoryName || 'Uncategorized',
-        categoryIcon: matched?.icon  || '📦',
-        categoryColor:matched?.color || '#888780',
-        confidence:   result.confidence,
-        reason:       result.reason,
+        categoryId:    matched?._id   || null,
+        categoryName:  matched?.name  || result.categoryName || 'Uncategorized',
+        categoryIcon:  matched?.icon  || '📦',
+        categoryColor: matched?.color || '#888780',
+        confidence:    result.confidence,
+        reason:        result.reason,
       },
     });
   } catch (error) {
@@ -122,36 +104,35 @@ Respond with JSON:
 
 //─────────────────────────────────────
 // 2. GET /api/ai/analysis
-// Spending analysis for current month
 //─────────────────────────────────────
 const getSpendingAnalysis = async (req, res, next) => {
   try {
     const month = parseInt(req.query.month || new Date().getMonth() + 1);
     const year  = parseInt(req.query.year  || new Date().getFullYear());
 
+    // Check cache
+    const cacheKey = `analysis:${month}:${year}`;
+    const cached = await getCached(req.user._id, 'analysis_cache', cacheKey);
+    if (cached) return res.status(200).json({ success: true, data: cached });
+
     const startDate = new Date(year, month - 1, 1);
     const endDate   = new Date(year, month, 0, 23, 59, 59);
 
     const transactions = await Transaction.find({
-      userId:    req.user._id,
-      isDeleted: false,
-      date:      { $gte: startDate, $lte: endDate },
+      userId: req.user._id, isDeleted: false,
+      date: { $gte: startDate, $lte: endDate },
     }).lean();
 
     if (transactions.length === 0) {
       return res.status(200).json({
         success: true,
-        data: {
-          analysis: null,
-          message: 'No transactions found for this period.',
-        },
+        data: { analysis: null, message: 'No transactions found for this period.' },
       });
     }
 
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
     const totalIncome  = transactions.filter(t => t.type === 'income' ).reduce((s, t) => s + t.amount, 0);
 
-    // Group by category
     const byCategory = {};
     transactions.filter(t => t.type === 'expense').forEach(t => {
       const k = t.categoryName || 'Uncategorized';
@@ -160,43 +141,29 @@ const getSpendingAnalysis = async (req, res, next) => {
 
     const user = await User.findById(req.user._id).lean();
 
-    const systemPrompt = `You are an expert personal finance analyst for Indian users.
-Analyze spending data and provide actionable insights.
-Be specific, friendly, and use Indian currency context.
-Respond ONLY with valid JSON.`;
-
-    const userPrompt = `User: ${user.name}, Monthly Income: ₹${user.monthlyIncome || 0}
-Period: ${month}/${year}
-Total Expense: ₹${totalExpense.toFixed(0)}
-Total Income: ₹${totalIncome.toFixed(0)}
-Net Savings: ₹${(totalIncome - totalExpense).toFixed(0)}
-Transactions: ${transactions.length}
-
-Spending by category:
-${Object.entries(byCategory).map(([k, v]) => `- ${k}: ₹${v.toFixed(0)}`).join('\n')}
-
-Respond with JSON:
-{
-  "summary": "2-3 sentence overall summary",
-  "topSpendingCategory": "category name",
-  "savingsRate": 0-100,
-  "spendingHealth": "good|fair|poor",
-  "keyFindings": ["finding1", "finding2", "finding3"],
-  "unusualPatterns": ["pattern1"] or [],
-  "monthComparison": "brief comparison note"
-}`;
-
-    const analysis = await askClaudeJSON(systemPrompt, userPrompt, 1024);
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        period: { month, year },
-        totals: { totalExpense, totalIncome, netSavings: totalIncome - totalExpense },
-        byCategory,
-        analysis,
-      },
+    const prompts = spendingAnalysis({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome || 0,
+      month, year,
+      totalExpense: Math.round(totalExpense),
+      totalIncome: Math.round(totalIncome),
+      transactionCount: transactions.length,
+      byCategory,
     });
+
+    const { data: analysis, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1024 });
+    await trackTokens(req.user._id, usage);
+
+    const responseData = {
+      period: { month, year },
+      totals: { totalExpense, totalIncome, netSavings: totalIncome - totalExpense },
+      byCategory,
+      analysis,
+    };
+
+    await setCache(req.user._id, 'analysis_cache', cacheKey, responseData);
+
+    return res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     next(error);
   }
@@ -204,7 +171,6 @@ Respond with JSON:
 
 //─────────────────────────────────────
 // 3. GET /api/ai/insights
-// Personalized financial insights
 //─────────────────────────────────────
 const getInsights = async (req, res, next) => {
   try {
@@ -214,14 +180,10 @@ const getInsights = async (req, res, next) => {
     if (transactions.length < 3) {
       return res.status(200).json({
         success: true,
-        data: {
-          insights: [],
-          message: 'Add more transactions to get personalized insights.',
-        },
+        data: { insights: [], message: 'Add more transactions to get personalized insights.' },
       });
     }
 
-    // Find top merchants
     const merchantCounts = {};
     transactions.forEach(t => {
       if (t.merchant) merchantCounts[t.merchant] = (merchantCounts[t.merchant] || 0) + 1;
@@ -229,39 +191,28 @@ const getInsights = async (req, res, next) => {
     const topMerchants = Object.entries(merchantCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([name, count]) => `${name} (${count}x)`);
+      .map(([name, count]) => `${name} (${count}x)`)
+      .join(', ');
 
-    const systemPrompt = `You are a smart personal finance advisor for Indian users.
-Generate specific, actionable financial insights based on real spending data.
-Each insight must be practical and tailored to the user's actual behavior.
-Respond ONLY with valid JSON array.`;
+    const topCategories = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([k, v]) => `- ${k}: ₹${v.toFixed(0)}`)
+      .join('\n');
 
-    const userPrompt = `User: ${user.name}
-Monthly Income: ₹${user.monthlyIncome || 0}
-Currency: ${currency}
-Last 3 months data:
-- Total Spent: ₹${totalExpense.toFixed(0)}
-- Total Income: ₹${totalIncome.toFixed(0)}
-- Transactions: ${transactions.length}
+    const prompts = insightsPrompt({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome || 0,
+      currency,
+      totalExpense: Math.round(totalExpense),
+      totalIncome: Math.round(totalIncome),
+      transactionCount: transactions.length,
+      topCategories,
+      topMerchants,
+    });
 
-Top categories:
-${Object.entries(categoryTotals).sort((a,b) => b[1]-a[1]).slice(0,6).map(([k,v]) => `- ${k}: ₹${v.toFixed(0)}`).join('\n')}
-
-Frequent merchants: ${topMerchants.join(', ')}
-
-Generate 5 personalized insights. Respond with JSON array:
-[
-  {
-    "type": "warning|tip|achievement|alert",
-    "title": "short title",
-    "message": "specific actionable message (2 sentences max)",
-    "category": "category this insight relates to",
-    "potentialSaving": number or null,
-    "priority": "high|medium|low"
-  }
-]`;
-
-    const insights = await askClaudeJSON(systemPrompt, userPrompt, 1500);
+    const { data: insights, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1500 });
+    await trackTokens(req.user._id, usage);
 
     return res.status(200).json({
       success: true,
@@ -274,69 +225,59 @@ Generate 5 personalized insights. Respond with JSON array:
 
 //─────────────────────────────────────
 // 4. GET /api/ai/recommendations
-// Personalized financial recommendations
 //─────────────────────────────────────
 const getRecommendations = async (req, res, next) => {
   try {
+    // Check cache
+    const cacheKey = 'recommendations';
+    const cached = await getCached(req.user._id, 'recommendations_cache', cacheKey);
+    if (cached) return res.status(200).json({ success: true, data: cached });
+
     const { transactions, categoryTotals, totalExpense, totalIncome, user, currency } =
       await getUserFinancialData(req.user._id, 2);
 
     if (transactions.length < 5) {
       return res.status(200).json({
         success: true,
-        data: {
-          recommendations: [],
-          message: 'Add more transactions to get recommendations.',
-        },
+        data: { recommendations: [], message: 'Add more transactions to get recommendations.' },
       });
     }
 
-    const systemPrompt = `You are a certified financial planner specializing in personal finance for young Indians.
-Give practical, realistic recommendations based on actual spending behavior.
-Be encouraging but honest. Reference specific numbers from the data.
-Respond ONLY with valid JSON array.`;
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : '0';
 
-    const userPrompt = `User Profile:
-- Name: ${user.name}
-- Monthly Income: ₹${user.monthlyIncome || 'not set'}
-- Plan: ${user.plan}
-- Currency: ${currency}
+    const categoryBreakdown = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `- ${k}: ₹${v.toFixed(0)}`)
+      .join('\n');
 
-Last 2 months spending:
-- Total Expense: ₹${totalExpense.toFixed(0)}
-- Total Income: ₹${totalIncome.toFixed(0)}
-- Savings: ₹${(totalIncome - totalExpense).toFixed(0)}
-- Savings Rate: ${totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome * 100).toFixed(1) : 0}%
-
-By category:
-${Object.entries(categoryTotals).sort((a,b) => b[1]-a[1]).map(([k,v]) => `- ${k}: ₹${v.toFixed(0)}`).join('\n')}
-
-Generate 4 specific recommendations. Respond with JSON array:
-[
-  {
-    "title": "action title",
-    "description": "specific recommendation with numbers (3 sentences max)",
-    "impact": "high|medium|low",
-    "category": "relevant category",
-    "estimatedMonthlySaving": number or null,
-    "actionSteps": ["step1", "step2"]
-  }
-]`;
-
-    const recommendations = await askClaudeJSON(systemPrompt, userPrompt, 1500);
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        recommendations: Array.isArray(recommendations) ? recommendations : [],
-        basedOn: {
-          months:       2,
-          transactions: transactions.length,
-          totalExpense,
-          totalIncome,
-        },
-      },
+    const prompts = recommendationsPrompt({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome,
+      plan: user.plan,
+      currency,
+      totalExpense: Math.round(totalExpense),
+      totalIncome: Math.round(totalIncome),
+      savings: Math.round(totalIncome - totalExpense),
+      savingsRate,
+      categoryBreakdown,
     });
+
+    const { data: recs, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1500 });
+    await trackTokens(req.user._id, usage);
+
+    const responseData = {
+      recommendations: Array.isArray(recs) ? recs : [],
+      basedOn: {
+        months: 2,
+        transactions: transactions.length,
+        totalExpense,
+        totalIncome,
+      },
+    };
+
+    await setCache(req.user._id, 'recommendations_cache', cacheKey, responseData);
+
+    return res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     next(error);
   }
@@ -344,20 +285,21 @@ Generate 4 specific recommendations. Respond with JSON array:
 
 //─────────────────────────────────────
 // 5. GET /api/ai/score
-// Financial health score
 //─────────────────────────────────────
 const getFinancialScore = async (req, res, next) => {
   try {
+    // Check cache
+    const cacheKey = 'score';
+    const cached = await getCached(req.user._id, 'score_cache', cacheKey);
+    if (cached) return res.status(200).json({ success: true, data: cached });
+
     const { transactions, categoryTotals, totalExpense, totalIncome, user } =
       await getUserFinancialData(req.user._id, 3);
 
     if (transactions.length < 5) {
       return res.status(200).json({
         success: true,
-        data: {
-          score: null,
-          message: 'Add at least 5 transactions to calculate your financial score.',
-        },
+        data: { score: null, message: 'Add at least 5 transactions to calculate your financial score.' },
       });
     }
 
@@ -365,66 +307,51 @@ const getFinancialScore = async (req, res, next) => {
     const monthlyIncome   = user?.monthlyIncome || 0;
     const avgMonthlySpend = totalExpense / 3;
 
-    // Essential vs discretionary
     const essentialCategories = ['Food & Dining', 'Groceries', 'Rent & Housing', 'Utilities', 'Health & Medical', 'Transportation'];
     const essentialSpend = Object.entries(categoryTotals)
       .filter(([k]) => essentialCategories.some(e => k.toLowerCase().includes(e.toLowerCase().split(' ')[0])))
       .reduce((s, [, v]) => s + v, 0);
     const discretionarySpend = totalExpense - essentialSpend;
 
-    const systemPrompt = `You are a financial health scoring system for Indian users.
-Score the user's financial health from 0-100 based on key metrics.
-Be honest but constructive. Respond ONLY with valid JSON.`;
+    const topCategories = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([k, v]) => `${k}: ₹${v.toFixed(0)}`)
+      .join(', ');
 
-    const userPrompt = `Financial Data (last 3 months):
-- Monthly Income declared: ₹${monthlyIncome}
-- Avg Monthly Spend: ₹${avgMonthlySpend.toFixed(0)}
-- Total Income (transactions): ₹${totalIncome.toFixed(0)}
-- Total Expense: ₹${totalExpense.toFixed(0)}
-- Savings Rate: ${savingsRate.toFixed(1)}%
-- Essential Spend: ₹${essentialSpend.toFixed(0)}
-- Discretionary Spend: ₹${discretionarySpend.toFixed(0)}
-- Transaction Count: ${transactions.length}
+    const prompts = scorePrompt({
+      monthlyIncome,
+      avgMonthlySpend: Math.round(avgMonthlySpend),
+      totalIncome: Math.round(totalIncome),
+      totalExpense: Math.round(totalExpense),
+      savingsRate: savingsRate.toFixed(1),
+      essentialSpend: Math.round(essentialSpend),
+      discretionarySpend: Math.round(discretionarySpend),
+      transactionCount: transactions.length,
+      topCategories,
+    });
 
-Top categories: ${Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k,v])=>`${k}: ₹${v.toFixed(0)}`).join(', ')}
+    const { data: scoreData, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1024 });
+    await trackTokens(req.user._id, usage);
 
-Calculate financial score. Respond with JSON:
-{
-  "score": 0-100,
-  "grade": "A+|A|B+|B|C+|C|D|F",
-  "label": "Excellent|Very Good|Good|Fair|Needs Improvement|Poor",
-  "breakdown": {
-    "savingsScore": 0-25,
-    "spendingScore": 0-25,
-    "consistencyScore": 0-25,
-    "essentialsScore": 0-25
-  },
-  "strengths": ["strength1", "strength2"],
-  "weaknesses": ["weakness1", "weakness2"],
-  "nextSteps": ["action1", "action2", "action3"],
-  "summary": "2-3 sentence summary of financial health"
-}`;
-
-    const scoreData = await askClaudeJSON(systemPrompt, userPrompt, 1024);
-
-    // Cache score on user
     await User.findByIdAndUpdate(req.user._id, {
       'financialScore.score':          scoreData.score,
       'financialScore.grade':          scoreData.grade,
       'financialScore.lastCalculated': new Date(),
     });
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        ...scoreData,
-        meta: {
-          calculatedAt:   new Date(),
-          basedOnMonths:  3,
-          transactionCount: transactions.length,
-        },
+    const responseData = {
+      ...scoreData,
+      meta: {
+        calculatedAt:     new Date(),
+        basedOnMonths:    3,
+        transactionCount: transactions.length,
       },
-    });
+    };
+
+    await setCache(req.user._id, 'score_cache', cacheKey, responseData);
+
+    return res.status(200).json({ success: true, data: responseData });
   } catch (error) {
     next(error);
   }
@@ -432,7 +359,6 @@ Calculate financial score. Respond with JSON:
 
 //─────────────────────────────────────
 // 6. POST /api/ai/chat
-// AI financial assistant chat
 //─────────────────────────────────────
 const chatWithAI = async (req, res, next) => {
   try {
@@ -442,22 +368,28 @@ const chatWithAI = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Message is required.' });
     }
 
+    const cleanMessage = sanitizeInput(message, 1000);
+
     const { totalExpense, totalIncome, categoryTotals, user } =
       await getUserFinancialData(req.user._id, 1);
 
-    const systemPrompt = `You are SpendWise AI, a friendly and knowledgeable personal finance assistant for Indian users.
-You have access to the user's recent financial data.
-Give specific, actionable advice. Be conversational, warm, and encouraging.
-Reference their actual data when relevant. Keep responses concise (under 150 words).`;
+    const topCategories = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, v]) => `${k} ₹${v.toFixed(0)}`)
+      .join(', ');
 
-    const userPrompt = `User: ${user.name}
-Monthly Income: ₹${user.monthlyIncome || 'not set'}
-This month — Spent: ₹${totalExpense.toFixed(0)}, Income: ₹${totalIncome.toFixed(0)}
-Top categories: ${Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k} ₹${v.toFixed(0)}`).join(', ')}
+    const prompts = chatPrompt({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome,
+      totalExpense: Math.round(totalExpense),
+      totalIncome: Math.round(totalIncome),
+      topCategories,
+      message: cleanMessage,
+    });
 
-User question: ${message}`;
-
-    const reply = await askClaude(systemPrompt, userPrompt, 512);
+    const { content: reply, usage } = await askLLM(prompts.system, prompts.user, { maxTokens: 512 });
+    await trackTokens(req.user._id, usage);
 
     return res.status(200).json({
       success: true,
@@ -469,10 +401,69 @@ User question: ${message}`;
 };
 
 //─────────────────────────────────────
-// 7. POST /api/ai/categorize-batch
-// Bulk categorize multiple transactions
+// 6b. POST /api/ai/chat/stream (SSE)
 //─────────────────────────────────────
-const categorizeBatch = async (req, res, next) => {
+const chatWithAIStream = async (req, res, next) => {
+  try {
+    const { message } = req.body;
+
+    if (!message?.trim()) {
+      return res.status(400).json({ success: false, message: 'Message is required.' });
+    }
+
+    const cleanMessage = sanitizeInput(message, 1000);
+
+    const { totalExpense, totalIncome, categoryTotals, user } =
+      await getUserFinancialData(req.user._id, 1);
+
+    const topCategories = Object.entries(categoryTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, v]) => `${k} ₹${v.toFixed(0)}`)
+      .join(', ');
+
+    const prompts = chatPrompt({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome,
+      totalExpense: Math.round(totalExpense),
+      totalIncome: Math.round(totalIncome),
+      topCategories,
+      message: cleanMessage,
+    });
+
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+    });
+
+    const stream = await askLLMStream(prompts.system, prompts.user, { maxTokens: 512 });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        res.write(`data: ${JSON.stringify({ token: delta })}\n\n`);
+      }
+      // Track usage from final chunk
+      if (chunk.x_groq?.usage) {
+        await trackTokens(req.user._id, chunk.x_groq.usage);
+      }
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) return next(error);
+    res.write(`data: ${JSON.stringify({ error: 'Stream interrupted' })}\n\n`);
+    res.end();
+  }
+};
+
+//─────────────────────────────────────
+// 7. POST /api/ai/categorize-batch
+//─────────────────────────────────────
+const categorizeBatchFn = async (req, res, next) => {
   try {
     const { transactionIds } = req.body;
 
@@ -485,7 +476,7 @@ const categorizeBatch = async (req, res, next) => {
     }
 
     const transactions = await Transaction.find({
-      _id:    { $in: transactionIds },
+      _id: { $in: transactionIds },
       userId: req.user._id,
     }).lean();
 
@@ -495,18 +486,23 @@ const categorizeBatch = async (req, res, next) => {
     }).lean();
 
     const categoryList = categories.map(c => c.name).join(', ');
-
     const results = [];
 
     for (const txn of transactions) {
       try {
-        const systemPrompt = `You are a transaction categorizer. Pick the best category from the list.
-Respond ONLY with JSON: {"categoryName": "exact name", "confidence": 0-100}`;
+        const prompts = categorizeBatch({
+          merchant: sanitizeInput(txn.merchant || txn.description || 'Unknown', 200),
+          amount: txn.amount,
+          type: txn.type,
+          categoryList,
+        });
 
-        const userPrompt = `Transaction: ${txn.merchant || txn.description || 'Unknown'} — ₹${txn.amount} (${txn.type})
-Categories: ${categoryList}`;
+        const { data: result, usage } = await askLLMJSON(prompts.system, prompts.user, {
+          maxTokens: 256,
+          model: FALLBACK_MODEL,
+        });
+        await trackTokens(req.user._id, usage);
 
-        const result = await askClaudeJSON(systemPrompt, userPrompt, 256);
         const matched = categories.find(c => c.name.toLowerCase() === result.categoryName?.toLowerCase());
 
         if (matched) {
@@ -545,5 +541,6 @@ module.exports = {
   getRecommendations,
   getFinancialScore,
   chatWithAI,
-  categorizeBatch,
+  chatWithAIStream,
+  categorizeBatch: categorizeBatchFn,
 };

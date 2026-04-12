@@ -17,7 +17,7 @@ const { protect } = require('../middleware/auth.middleware');
 //─────────────────────────────────────
 // PUBLIC — Razorpay webhook (no auth)
 //─────────────────────────────────────
-router.post('/webhook', express.raw({ type: 'application/json' }), webhook);
+router.post('/webhook', webhook);
 
 //─────────────────────────────────────
 // PROTECTED

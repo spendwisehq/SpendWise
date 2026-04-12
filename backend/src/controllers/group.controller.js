@@ -66,7 +66,7 @@ const addMember = async (req, res, next) => {
     const identifier = email || phone;
     if (!identifier) return res.status(400).json({ success:false, message:'Email or phone is required.' });
 
-    const alreadyMember = group.members.some(m => m.email === email || m.phone === phone);
+    const alreadyMember = group.members.some(m => (email && m.email === email) || (phone && m.phone === phone));
     if (alreadyMember) return res.status(409).json({ success:false, message:'Already a member.' });
 
     const user = email ? await User.findOne({ email }).lean() : null;

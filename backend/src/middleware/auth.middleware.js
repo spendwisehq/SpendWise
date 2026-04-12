@@ -5,16 +5,23 @@ const { verifyAccessToken } = require('../utils/jwt');
 
 const protect = async (req, res, next) => {
   try {
-    // Extract token from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token;
+
+    // 1. Try httpOnly cookie first
+    if (req.cookies?.sw_access) {
+      token = req.cookies.sw_access;
+    }
+    // 2. Fall back to Authorization header (for API clients / mobile)
+    else if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: 'Access denied. No token provided.',
       });
     }
-
-    const token = authHeader.split(' ')[1];
 
     // Verify token
     let decoded;

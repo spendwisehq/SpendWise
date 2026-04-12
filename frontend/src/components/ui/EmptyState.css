@@ -1,0 +1,35 @@
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-10) var(--space-6);
+  gap: var(--space-4);
+}
+
+.ui-empty__illustration {
+  width: 120px; height: 120px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 56px;
+  opacity: 0.7;
+}
+
+.ui-empty__title {
+  margin: 0;
+  font-size: var(--font-size-lg, 18px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary);
+}
+
+.ui-empty__description {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-secondary);
+  max-width: 320px;
+  line-height: var(--line-height-relaxed, 1.65);
+}
+
+.ui-empty__action {
+  margin-top: var(--space-2);
+}

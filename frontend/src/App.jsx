@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider }  from './context/AuthContext';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 // ⚠️ CSS imported ONCE here — nowhere else
 import './styles/global.css';
 
@@ -72,14 +73,14 @@ const App = () => {
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppLayout />}>
                   <Route path="/"             element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard"    element={<Dashboard />} />
-                  <Route path="/transactions" element={<Transactions />} />
-                  <Route path="/analytics"    element={<Analytics />} />
-                  <Route path="/groups"       element={<Groups />} />
-                  <Route path="/friends"      element={<Friends />} />
-                  <Route path="/goals"        element={<Goals />} />
-                  <Route path="/ai-assistant" element={<AIAssistant />} />
-                  <Route path="/settings"     element={<Settings />} />
+                  <Route path="/dashboard"    element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                  <Route path="/transactions" element={<ErrorBoundary><Transactions /></ErrorBoundary>} />
+                  <Route path="/analytics"    element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
+                  <Route path="/groups"       element={<ErrorBoundary><Groups /></ErrorBoundary>} />
+                  <Route path="/friends"      element={<ErrorBoundary><Friends /></ErrorBoundary>} />
+                  <Route path="/goals"        element={<ErrorBoundary><Goals /></ErrorBoundary>} />
+                  <Route path="/ai-assistant" element={<ErrorBoundary><AIAssistant /></ErrorBoundary>} />
+                  <Route path="/settings"     element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 </Route>
               </Route>
 

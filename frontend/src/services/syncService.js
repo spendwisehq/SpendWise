@@ -76,6 +76,7 @@ export const processSyncQueue = async () => {
   if (queue.length === 0) return { processed: 0 };
 
   let processed = 0;
+  let failed    = 0;
 
   for (const op of queue) {
     try {
@@ -87,11 +88,14 @@ export const processSyncQueue = async () => {
         await transactionAPI.remove(op.id);
       }
       processed++;
-    } catch (_) {}
+    } catch (err) {
+      failed++;
+      console.warn('[SyncQueue] Operation failed:', op.type, op.id, err.message);
+    }
   }
 
   await clearSyncQueue();
-  return { processed };
+  return { processed, failed };
 };
 
 //─────────────────────────────────────

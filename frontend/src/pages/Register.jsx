@@ -101,8 +101,8 @@ const Register = () => {
     setLoading(true);
     try {
       const res = await authAPI.register({ name: form.name, email: form.email, password: form.password, currency: form.currency });
-      if (res.data.devMode) {
-        setDevOtp(res.data.otp);
+      if (res?.devMode) {
+        setDevOtp(res.otp);
         toast.success('Dev mode: OTP shown below');
       } else {
         toast.success(`Verification code sent to ${form.email}`);
@@ -123,10 +123,10 @@ const Register = () => {
     setLoading(true);
     try {
       const res = await authAPI.verifyOTP({ email: form.email, otp });
-      const { user, accessToken, refreshToken } = res.data;
-      localStorage.setItem('spendwise_token', accessToken);
+      const { user } = res;
+      // Token is set as httpOnly cookie by backend
       localStorage.setItem('spendwise_user', JSON.stringify(user));
-      toast.success('Email verified! Welcome to SpendWise 🎉');
+      toast.success('Email verified! Welcome to SpendWise');
       navigate('/dashboard');
     } catch (err) {
       toast.error(err.message || 'Invalid verification code');

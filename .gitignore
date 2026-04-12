@@ -29,3 +29,12 @@ typechain-types/
 .DS_Store
 .vscode/
 .idea/
+
+# Mobile (Expo)
+mobile/.expo/
+mobile/ios/
+mobile/android/
+
+# Skills
+.agents/
+.claude/

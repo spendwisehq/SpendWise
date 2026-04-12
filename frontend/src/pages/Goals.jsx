@@ -1,11 +1,11 @@
 // frontend/src/pages/Goals.jsx
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Target, TrendingUp, Plus, Lightbulb, Trophy, RefreshCw } from 'lucide-react';
-import api from '../api/axios';
-import transactionAPI from '../api/transaction.api';
 import { useAuth } from '../context/AuthContext';
-import toast from 'react-hot-toast';
+import { useGoals } from '../hooks/useGoals';
+import Skeleton from '../components/ui/Skeleton';
+import EmptyState from '../components/ui/EmptyState';
 import './Goals.css';
 
 const fmt = (v, currency = 'INR') =>
@@ -15,39 +15,7 @@ const Goals = () => {
   const { user } = useAuth();
   const currency = user?.currency || 'INR';
 
-  const [stats,       setStats]       = useState(null);
-  const [score,       setScore]       = useState(null);
-  const [recs,        setRecs]        = useState([]);
-  const [forecast,    setForecast]    = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [aiLoading,   setAILoading]   = useState(false);
-
-  useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
-      try {
-        const statsRes = await transactionAPI.getStats();
-        setStats(statsRes.data);
-      } catch { toast.error('Failed to load goals data'); }
-      finally { setLoading(false); }
-    };
-    fetch();
-  }, []);
-
-  const fetchAIData = async () => {
-    setAILoading(true);
-    try {
-      const [scoreRes, recsRes, forecastRes] = await Promise.all([
-        api.get('/ai/score'),
-        api.get('/ai/recommendations'),
-        api.get('/ai/advanced/forecast?months=3'),
-      ]);
-      setScore(scoreRes.data);
-      setRecs(recsRes.data.recommendations || []);
-      setForecast(forecastRes.data);
-    } catch { toast.error('Failed to load AI data'); }
-    finally { setAILoading(false); }
-  };
+  const { stats, isLoading: loading, score, recommendations: recs, forecast, aiLoading, fetchAIData } = useGoals();
 
   const thisMonth = stats?.thisMonth || {};
   const savingsRate = thisMonth.totalIncome > 0
@@ -84,7 +52,7 @@ const Goals = () => {
           { label: 'Savings Rate', value: `${savingsRate}%`, color: savingsRate >= 20 ? 'var(--color-success)' : savingsRate >= 10 ? 'var(--color-warning)' : 'var(--color-danger)' },
         ].map(({ label, value, color }) => (
           <div key={label} className="stat-pill">
-            <div className="stat-pill__value" style={{ color }}>{loading ? '—' : value}</div>
+            <div className="stat-pill__value" style={{ color }}>{loading ? <Skeleton shape="text" width="80px" height="20px" /> : value}</div>
             <div className="stat-pill__label">{label}</div>
           </div>
         ))}
@@ -116,13 +84,13 @@ const Goals = () => {
             <div className="score-lists">
               {score.strengths?.length > 0 && (
                 <div>
-                  <h4>✅ Strengths</h4>
+                  <h4>Strengths</h4>
                   {score.strengths.map((s, i) => <p key={i} className="score-list-item">{s}</p>)}
                 </div>
               )}
               {score.weaknesses?.length > 0 && (
                 <div>
-                  <h4>⚠️ Improve</h4>
+                  <h4>Improve</h4>
                   {score.weaknesses.map((w, i) => <p key={i} className="score-list-item">{w}</p>)}
                 </div>
               )}
@@ -130,11 +98,11 @@ const Goals = () => {
           </div>
         </div>
       ) : (
-        <div className="score-placeholder">
-          <Trophy size={32} color="var(--color-warning)" />
-          <h3>Get Your Financial Score</h3>
-          <p>Click "Get AI Analysis" to calculate your personalized financial health score</p>
-        </div>
+        <EmptyState
+          icon={<Trophy size={36} color="var(--color-warning)" />}
+          title="Get Your Financial Score"
+          description="Click 'Get AI Analysis' to see your personalized financial health score and recommendations"
+        />
       )}
 
       {/* Recommendations */}

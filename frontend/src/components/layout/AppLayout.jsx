@@ -9,11 +9,14 @@ import {
 } from 'lucide-react';
 import { useAuth }  from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import NotificationsPanel from '../NotificationsPanel';
 import ProfilePanel       from '../ProfilePanel';
 import MonthlyIncomePopup, { shouldShowIncomePopup } from '../MonthlyIncomePopup';
 import toast from 'react-hot-toast';
 import './AppLayout.css';
+
+import logo from '../../assets/logo.png';
 
 const NAV_ITEMS = [
   {
@@ -58,6 +61,8 @@ const AppLayout = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
 
+  useKeyboardShortcuts();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifs,  setShowNotifs]  = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -81,7 +86,9 @@ const AppLayout = () => {
           const c = await mod.getNotifCount();
           setNotifCount(c);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Failed to fetch notification count:', err.message);
+      }
     };
     fetchCount();
   }, []);
@@ -118,7 +125,7 @@ const AppLayout = () => {
           onClick={() => { navigate('/dashboard'); setSidebarOpen(false); }}
           title="Dashboard"
         >
-          <div className="sidebar__logo-icon">SW</div>
+          <img src={logo} alt="SpendWise Logo" className="sidebar__logo-img" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
           <span className="sidebar__logo-text">SpendWise</span>
           <button
             className="sidebar__close"
@@ -173,7 +180,7 @@ const AppLayout = () => {
             <Menu size={19} />
           </button>
           <div className="header__brand">
-            <TrendingUp size={16} color="var(--color-primary)" />
+            <img src={logo} alt="SpendWise Logo" style={{ width: '20px', height: '20px', objectFit: 'contain', marginRight: '8px' }} />
             <span>SpendWise</span>
           </div>
 

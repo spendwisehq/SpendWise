@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Bell, TrendingDown, AlertTriangle, CheckCircle, Info, Trash2 } from 'lucide-react';
+import { useNotifications } from '../hooks/useNotifications';
 import api from '../api/axios';
 import './NotificationsPanel.css';
 
@@ -22,33 +23,16 @@ const COLOR_MAP = {
 };
 
 const NotificationsPanel = ({ onClose }) => {
-  const [alerts,  setAlerts]  = useState([]);
-  const [summary, setSummary] = useState(null);
-  const [anomalies, setAnomalies] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading: loading } = useNotifications();
+  const alerts    = data?.alerts || [];
+  const summary   = data?.summary;
+  const anomalies = data?.anomalies || [];
+
   const [dismissed, setDismissed] = useState(() => {
     try { return JSON.parse(localStorage.getItem('sw_dismissed_notifs') || '[]'); }
     catch { return []; }
   });
   const panelRef = useRef(null);
-
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true);
-      try {
-        const [alertsRes, summaryRes, anomaliesRes] = await Promise.all([
-          api.get('/notifications/budget-alerts'),
-          api.get('/notifications/weekly-summary'),
-          api.get('/notifications/anomaly-alerts'),
-        ]);
-        setAlerts(alertsRes.data.alerts || []);
-        setSummary(summaryRes.data);
-        setAnomalies(anomaliesRes.data.anomalies || []);
-      } catch {}
-      finally { setLoading(false); }
-    };
-    fetchAll();
-  }, []);
 
   // Close on outside click
   useEffect(() => {

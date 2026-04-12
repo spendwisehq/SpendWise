@@ -1,6 +1,10 @@
 // backend/src/controllers/aiAdvanced.controller.js
 
-const { askClaude, askClaudeJSON } = require('../services/groq.service');
+const { askLLM, askLLMJSON } = require('../services/groq.service');
+const { trackTokens }        = require('../services/tokenTracking.service');
+const { sanitizeInput }       = require('../utils/sanitize');
+const { anomalyDetection, subscriptionDetection, spendingForecast: forecastPrompt, budgetPrediction } = require('../prompts/analysis');
+const { scoreCommentary } = require('../prompts/insights');
 const Transaction           = require('../models/Transaction.model');
 const Budget                = require('../models/Budget.model');
 const RecurringTransaction  = require('../models/RecurringTransaction.model');
@@ -49,7 +53,6 @@ const getMonthlyBreakdown = async (userId, months = 6) => {
 
 //─────────────────────────────────────
 // 1. GET /api/ai/advanced/predict-budget
-// AI predicts next month's budget
 //─────────────────────────────────────
 const predictBudget = async (req, res, next) => {
   try {
@@ -66,36 +69,19 @@ const predictBudget = async (req, res, next) => {
     const now       = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-    const systemPrompt = `You are a financial planning AI for Indian users.
-Predict next month's budget based on spending history.
-Be realistic and data-driven. Respond ONLY with valid JSON.`;
+    const prompts = budgetPrediction({
+      userName: user.name,
+      monthlyIncome: user.monthlyIncome || 0,
+      currency: user.currency || 'INR',
+      history,
+      categoryBreakdown: history[history.length - 1]?.byCategory || {},
+      nextMonthLabel: nextMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' }),
+    });
 
-    const userPrompt = `User: ${user.name}
-Monthly Income: ₹${user.monthlyIncome || 0}
-Currency: ${user.currency || 'INR'}
+    const { data: prediction, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1500 });
+    await trackTokens(req.user._id, usage);
 
-Spending history (last 4 months):
-${history.map(h => `${h.label}: Expense ₹${h.expense.toFixed(0)}, Income ₹${h.income.toFixed(0)}, Savings ₹${h.savings.toFixed(0)}`).join('\n')}
-
-Category breakdown (latest month):
-${Object.entries(history[history.length - 1]?.byCategory || {}).map(([k, v]) => `- ${k}: ₹${v.toFixed(0)}`).join('\n')}
-
-Predict budget for ${nextMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' })}.
-Respond with JSON:
-{
-  "totalPredicted": number,
-  "confidence": 0-100,
-  "categories": [
-    { "name": "category", "predicted": number, "trend": "up|down|stable", "reason": "brief reason" }
-  ],
-  "savingsPotential": number,
-  "advice": "2 sentence budget advice",
-  "riskLevel": "low|medium|high"
-}`;
-
-    const prediction = await askClaudeJSON(systemPrompt, userPrompt, 1500);
-
-    // Auto-create budget in DB if not exists
+    // Auto-create budget if not exists
     const existing = await Budget.findOne({
       userId: req.user._id,
       month:  nextMonth.getMonth() + 1,
@@ -134,7 +120,6 @@ Respond with JSON:
 
 //─────────────────────────────────────
 // 2. GET /api/ai/advanced/anomalies
-// Detect unusual transactions
 //─────────────────────────────────────
 const detectAnomalies = async (req, res, next) => {
   try {
@@ -177,7 +162,6 @@ const detectAnomalies = async (req, res, next) => {
       return t.amount > stats.avg + 2 * stats.std;
     }).slice(0, 10);
 
-    // Use AI to explain anomalies
     if (flagged.length === 0) {
       return res.status(200).json({
         success: true,
@@ -185,31 +169,11 @@ const detectAnomalies = async (req, res, next) => {
       });
     }
 
-    const systemPrompt = `You are a financial anomaly detection AI.
-Analyze flagged transactions and explain why they are unusual.
-Respond ONLY with valid JSON array.`;
+    const prompts = anomalyDetection({ flaggedTransactions: flagged, categoryAvg });
 
-    const userPrompt = `Flagged transactions (statistically unusual):
-${flagged.map(t => `- ₹${t.amount} at ${t.merchant || 'Unknown'} (${t.categoryName}) on ${new Date(t.date).toLocaleDateString('en-IN')}`).join('\n')}
+    const { data: explanations, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1024 });
+    await trackTokens(req.user._id, usage);
 
-Category averages:
-${Object.entries(categoryAvg).map(([k, v]) => `- ${k}: avg ₹${v.avg.toFixed(0)}, std ₹${v.std.toFixed(0)}`).join('\n')}
-
-For each flagged transaction, respond with JSON array:
-[
-  {
-    "merchant": "name",
-    "amount": number,
-    "category": "category",
-    "reason": "why this is unusual (1 sentence)",
-    "severity": "low|medium|high",
-    "suggestion": "what to do about it (1 sentence)"
-  }
-]`;
-
-    const explanations = await askClaudeJSON(systemPrompt, userPrompt, 1024);
-
-    // Merge with transaction IDs
     const anomalies = flagged.map((t, i) => ({
       transactionId: t._id,
       date:          t.date,
@@ -220,7 +184,6 @@ For each flagged transaction, respond with JSON array:
       ...(Array.isArray(explanations) ? explanations[i] || {} : {}),
     }));
 
-    // Mark transactions as anomalies in DB
     await Promise.all(flagged.map(t =>
       Transaction.findByIdAndUpdate(t._id, {
         'aiData.isAnomaly': true,
@@ -244,7 +207,6 @@ For each flagged transaction, respond with JSON array:
 
 //─────────────────────────────────────
 // 3. GET /api/ai/advanced/subscriptions
-// Auto-detect recurring/subscription payments
 //─────────────────────────────────────
 const detectSubscriptions = async (req, res, next) => {
   try {
@@ -273,13 +235,12 @@ const detectSubscriptions = async (req, res, next) => {
       merchantGroups[key].push({ date: t.date, amount: t.amount, id: t._id });
     });
 
-    // Find merchants with 2+ transactions with similar amounts
     const candidates = Object.entries(merchantGroups)
       .filter(([, txns]) => txns.length >= 2)
       .map(([merchant, txns]) => {
         const amounts  = txns.map(t => t.amount);
         const avgAmt   = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-        const isConsistent = amounts.every(a => Math.abs(a - avgAmt) / avgAmt < 0.05); // 5% variance
+        const isConsistent = amounts.every(a => Math.abs(a - avgAmt) / avgAmt < 0.05);
         const dates    = txns.map(t => new Date(t.date)).sort((a, b) => a - b);
         const gaps     = [];
         for (let i = 1; i < dates.length; i++) {
@@ -298,32 +259,11 @@ const detectSubscriptions = async (req, res, next) => {
       });
     }
 
-    const systemPrompt = `You are a subscription detection AI for Indian users.
-Analyze transaction patterns and identify subscriptions/recurring payments.
-Respond ONLY with valid JSON array.`;
+    const prompts = subscriptionDetection({ candidates });
 
-    const userPrompt = `Candidate recurring payments:
-${candidates.map(c => `- ${c.merchant}: ₹${c.avgAmt.toFixed(0)} × ${c.count} times, avg gap ${c.avgGap.toFixed(0)} days`).join('\n')}
+    const { data: detected, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1500 });
+    await trackTokens(req.user._id, usage);
 
-For each, respond with JSON array:
-[
-  {
-    "merchant": "name",
-    "amount": number,
-    "frequency": "daily|weekly|monthly|quarterly|yearly",
-    "category": "likely category",
-    "isSubscription": true/false,
-    "confidence": 0-100,
-    "nextExpected": "YYYY-MM-DD estimate",
-    "annualCost": number,
-    "canCancel": true/false,
-    "suggestion": "keep/review/cancel with reason"
-  }
-]`;
-
-    const detected = await askClaudeJSON(systemPrompt, userPrompt, 1500);
-
-    // Save detected subscriptions to DB
     const saved = [];
     if (Array.isArray(detected)) {
       for (const sub of detected.filter(s => s.isSubscription && s.confidence >= 70)) {
@@ -368,11 +308,10 @@ For each, respond with JSON array:
 
 //─────────────────────────────────────
 // 4. GET /api/ai/advanced/forecast
-// Predict future spending by category
 //─────────────────────────────────────
-const spendingForecast = async (req, res, next) => {
+const spendingForecastFn = async (req, res, next) => {
   try {
-    const months  = parseInt(req.query.months || '3'); // how many months to forecast
+    const months  = parseInt(req.query.months || '3');
     const history = await getMonthlyBreakdown(req.user._id, 4);
     const user    = await User.findById(req.user._id).lean();
 
@@ -383,38 +322,15 @@ const spendingForecast = async (req, res, next) => {
       });
     }
 
-    const systemPrompt = `You are a financial forecasting AI for Indian users.
-Use historical spending data to forecast future expenses.
-Be realistic and account for trends. Respond ONLY with valid JSON.`;
+    const prompts = forecastPrompt({
+      history,
+      categoryBreakdown: history[history.length - 1]?.byCategory || {},
+      monthlyIncome: user.monthlyIncome || 0,
+      months,
+    });
 
-    const userPrompt = `Historical spending (last 4 months):
-${history.map(h => `${h.label}: Total ₹${h.expense.toFixed(0)}`).join('\n')}
-
-Category trends:
-${Object.entries(history[history.length-1]?.byCategory || {}).slice(0, 8).map(([k, v]) => `- ${k}: ₹${v.toFixed(0)}`).join('\n')}
-
-Monthly Income: ₹${user.monthlyIncome || 0}
-
-Forecast spending for next ${months} months. Respond with JSON:
-{
-  "forecast": [
-    {
-      "month": "Month Year",
-      "totalExpense": number,
-      "totalIncome": number,
-      "netSavings": number,
-      "categories": [{ "name": "category", "amount": number }],
-      "confidence": 0-100
-    }
-  ],
-  "trend": "increasing|decreasing|stable",
-  "avgMonthlyExpense": number,
-  "projectedAnnualSavings": number,
-  "keyRisk": "main financial risk",
-  "opportunity": "main savings opportunity"
-}`;
-
-    const forecast = await askClaudeJSON(systemPrompt, userPrompt, 1500);
+    const { data: forecast, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1500 });
+    await trackTokens(req.user._id, usage);
 
     return res.status(200).json({
       success: true,
@@ -436,7 +352,6 @@ Forecast spending for next ${months} months. Respond with JSON:
 
 //─────────────────────────────────────
 // 5. GET /api/ai/advanced/score-history
-// Track financial score evolution over time
 //─────────────────────────────────────
 const scoreHistory = async (req, res, next) => {
   try {
@@ -450,7 +365,6 @@ const scoreHistory = async (req, res, next) => {
       });
     }
 
-    // Calculate a simple score for each month
     const scores = history.map(h => {
       if (h.count === 0) return { label: h.label, score: null };
 
@@ -481,15 +395,14 @@ const scoreHistory = async (req, res, next) => {
       };
     }).filter(s => s.score !== null);
 
-    // AI commentary on score trend
     const trend = scores.length >= 2
       ? scores[scores.length - 1].score - scores[0].score
       : 0;
 
-    const systemPrompt = `You are a financial coach. Give brief encouraging commentary on a user's financial score trend. Max 2 sentences.`;
-    const userPrompt   = `Score trend over ${scores.length} months: ${scores.map(s => `${s.label}: ${s.score}`).join(', ')}. Overall change: ${trend > 0 ? '+' : ''}${trend.toFixed(0)} points.`;
+    const prompts = scoreCommentary({ scores, trend });
 
-    const commentary = await askClaude(systemPrompt, userPrompt, 200);
+    const { content: commentary, usage } = await askLLM(prompts.system, prompts.user, { maxTokens: 200 });
+    await trackTokens(req.user._id, usage);
 
     return res.status(200).json({
       success: true,
@@ -508,7 +421,6 @@ const scoreHistory = async (req, res, next) => {
 
 //─────────────────────────────────────
 // 6. GET /api/ai/advanced/subscriptions/list
-// List all saved recurring transactions
 //─────────────────────────────────────
 const listSubscriptions = async (req, res, next) => {
   try {
@@ -530,11 +442,7 @@ const listSubscriptions = async (req, res, next) => {
       success: true,
       data: {
         subscriptions,
-        summary: {
-          total:        subscriptions.length,
-          totalMonthly,
-          totalAnnual,
-        },
+        summary: { total: subscriptions.length, totalMonthly, totalAnnual },
       },
     });
   } catch (error) {
@@ -546,7 +454,7 @@ module.exports = {
   predictBudget,
   detectAnomalies,
   detectSubscriptions,
-  spendingForecast,
+  spendingForecast: spendingForecastFn,
   scoreHistory,
   listSubscriptions,
 };

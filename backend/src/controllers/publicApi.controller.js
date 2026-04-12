@@ -1,6 +1,6 @@
 // backend/src/controllers/publicApi.controller.js
 
-const { askClaudeJSON } = require('../services/groq.service');
+const { askLLMJSON } = require('../services/groq.service');
 const Category    = require('../models/Category.model');
 const Transaction = require('../models/Transaction.model');
 const User        = require('../models/User.model');
@@ -33,7 +33,7 @@ Categories: ${categoryList}
 
 Respond: {"categoryName": "name", "confidence": 0-100, "reason": "brief"}`;
 
-    const result = await askClaudeJSON(systemPrompt, userPrompt, 256);
+    const { data: result } = await askLLMJSON(systemPrompt, userPrompt, { maxTokens: 256 });
     const matched = categories.find(c => c.name.toLowerCase() === result.categoryName?.toLowerCase());
 
     return res.status(200).json({
@@ -100,7 +100,7 @@ Respond:
   "insights": ["insight1", "insight2", "insight3"]
 }`;
 
-    const analysis = await askClaudeJSON(systemPrompt, userPrompt, 512);
+    const { data: analysis } = await askLLMJSON(systemPrompt, userPrompt, { maxTokens: 512 });
 
     return res.status(200).json({
       success: true,
@@ -145,7 +145,7 @@ Predict next month. Respond:
   "advice": "one sentence budget advice"
 }`;
 
-    const prediction = await askClaudeJSON(systemPrompt, userPrompt, 256);
+    const { data: prediction } = await askLLMJSON(systemPrompt, userPrompt, { maxTokens: 256 });
 
     return res.status(200).json({
       success: true,
@@ -191,7 +191,7 @@ Respond:
   "summary": "one sentence summary"
 }`;
 
-    const result = await askClaudeJSON(systemPrompt, userPrompt, 256);
+    const { data: result } = await askLLMJSON(systemPrompt, userPrompt, { maxTokens: 256 });
 
     return res.status(200).json({
       success: true,

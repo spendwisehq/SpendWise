@@ -70,6 +70,33 @@ const errorHandler = (err, req, res, next) => {
     message    = err.error.description;
   }
 
+  // ── Groq / LLM API errors ─────────────────────────────────────────────
+  if (err.status === 429) {
+    statusCode = 429;
+    message    = 'AI rate limit exceeded. Please wait a moment and try again.';
+  }
+
+  if (err.status === 503 || (err.message && err.message.includes('Service Unavailable'))) {
+    statusCode = 503;
+    message    = 'AI service is temporarily unavailable. Please try again later.';
+  }
+
+  if (err.message && err.message.includes('Failed to extract JSON from LLM')) {
+    statusCode = 502;
+    message    = 'AI returned an unexpected response. Please try again.';
+  }
+
+  // ── Timeout errors ────────────────────────────────────────────────────────
+  if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || err.code === 'ESOCKETTIMEDOUT') {
+    statusCode = 504;
+    message    = 'Request timed out. Please try again.';
+  }
+
+  if (err.code === 'ECONNREFUSED') {
+    statusCode = 503;
+    message    = 'Unable to reach external service. Please try again later.';
+  }
+
   // ── Log ─────────────────────────────────────────────────────────────────
   if (statusCode >= 500) {
     console.error(`[${new Date().toISOString()}] ${statusCode} - ${message}`, {

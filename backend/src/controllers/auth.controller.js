@@ -1,22 +1,50 @@
 // backend/src/controllers/auth.controller.js
-// With OTP email verification + full auth system
+// With OTP email verification + httpOnly cookie auth
 
 const User    = require('../models/User.model');
 const crypto  = require('crypto');
 const nodemailer = require('nodemailer');
 const { authenticator } = require('otplib');
+const { env } = require('../config/env');
 const {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
 } = require('../utils/jwt');
 
+// ── Cookie config ─────────────────────────────────────────────────────────────
+const COOKIE_BASE = {
+  httpOnly: true,
+  secure:   env.isProd,
+  sameSite: 'lax',
+  path:     '/',
+};
+
+const setAuthCookies = (res, accessToken, refreshToken) => {
+  res.cookie('sw_access', accessToken, {
+    ...COOKIE_BASE,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7d — matches JWT_EXPIRES_IN
+  });
+  res.cookie('sw_refresh', refreshToken, {
+    ...COOKIE_BASE,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30d — matches JWT_REFRESH_EXPIRES_IN
+    path:   '/api/auth', // only sent to auth endpoints
+  });
+};
+
+const clearAuthCookies = (res) => {
+  res.clearCookie('sw_access',  { path: '/' });
+  res.clearCookie('sw_refresh', { path: '/api/auth' });
+};
+
 // ── Email transporter ────────────────────────────────────────────────────────
 const createTransporter = () => nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || 'gmail',
+  host: env.email.host,
+  port: env.email.port,
+  secure: env.email.port === 465, // true for 465, false for other ports
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: env.email.user,
+    pass: env.email.pass,
   },
 });
 
@@ -24,7 +52,7 @@ const createTransporter = () => nodemailer.createTransport({
 const sendOTPEmail = async (email, otp, name) => {
   const transporter = createTransporter();
   await transporter.sendMail({
-    from: `"SpendWise" <${process.env.EMAIL_USER}>`,
+    from: `"SpendWise" <${env.email.user}>`,
     to: email,
     subject: 'SpendWise — Verify Your Email',
     html: `
@@ -69,19 +97,16 @@ const register = async (req, res, next) => {
   try {
     const { name, email, password, currency } = req.body;
 
-    // Check duplicate email
     const existing = await User.findOne({ email: email.toLowerCase() });
     if (existing && existing.isEmailVerified) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
-    // Generate 6-digit OTP
     const otp        = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     let user;
     if (existing && !existing.isEmailVerified) {
-      // Update existing unverified account
       existing.name     = name;
       existing.password = password;
       existing.currency = currency || 'INR';
@@ -90,7 +115,6 @@ const register = async (req, res, next) => {
       await existing.save();
       user = existing;
     } else {
-      // Create new user (unverified)
       user = await User.create({
         name, email, password,
         currency:  currency || 'INR',
@@ -101,13 +125,11 @@ const register = async (req, res, next) => {
       });
     }
 
-    // Send OTP email
     try {
       await sendOTPEmail(email, otp, name);
     } catch (emailErr) {
       console.error('Email send failed:', emailErr.message);
-      // In dev mode — return OTP in response for testing
-      if (process.env.NODE_ENV === 'development') {
+      if (env.isDev) {
         return res.status(201).json({
           success: true,
           message: 'Account created! (Dev mode: OTP returned in response)',
@@ -136,7 +158,7 @@ const verifyOTP = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Email and OTP are required.' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+emailVerificationOTP +emailVerificationExpires');
     if (!user) {
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
@@ -153,7 +175,6 @@ const verifyOTP = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new one.' });
     }
 
-    // Mark as verified
     user.isEmailVerified          = true;
     user.emailVerificationOTP     = undefined;
     user.emailVerificationExpires = undefined;
@@ -164,9 +185,11 @@ const verifyOTP = async (req, res, next) => {
     user.refreshToken  = refreshToken;
     await user.save({ validateBeforeSave: false });
 
+    setAuthCookies(res, accessToken, refreshToken);
+
     return res.status(200).json({
       success: true,
-      message: 'Email verified! Welcome to SpendWise 🎉',
+      message: 'Email verified! Welcome to SpendWise',
       data: { user: sanitizeUser(user), accessToken, refreshToken },
     });
   } catch (error) {
@@ -198,7 +221,7 @@ const resendOTP = async (req, res, next) => {
     try {
       await sendOTPEmail(email, otp, user.name);
     } catch {
-      if (process.env.NODE_ENV === 'development') {
+      if (env.isDev) {
         return res.status(200).json({ success: true, message: 'Dev mode: OTP resent.', data: { otp } });
       }
       return res.status(500).json({ success: false, message: 'Failed to send email.' });
@@ -223,7 +246,6 @@ const login = async (req, res, next) => {
     if (!isMatch) return res.status(401).json({ success: false, message: 'Invalid email or password.' });
 
     if (!user.isEmailVerified) {
-      // Re-send OTP
       const otp        = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       user.emailVerificationOTP     = otp;
@@ -245,6 +267,8 @@ const login = async (req, res, next) => {
     user.lastLoginAt   = new Date();
     await user.save({ validateBeforeSave: false });
 
+    setAuthCookies(res, accessToken, refreshToken);
+
     return res.status(200).json({
       success: true, message: 'Login successful!',
       data: { user: sanitizeUser(user), accessToken, refreshToken },
@@ -255,9 +279,10 @@ const login = async (req, res, next) => {
 };
 
 // ── POST /api/auth/refresh ───────────────────────────────────────────────────
-const refreshToken = async (req, res, next) => {
+const refreshTokenFn = async (req, res, next) => {
   try {
-    const { refreshToken: token } = req.body;
+    // Read refresh token from cookie first, then body as fallback (for API clients)
+    const token = req.cookies?.sw_refresh || req.body?.refreshToken;
     if (!token) return res.status(401).json({ success: false, message: 'Refresh token required.' });
 
     let decoded;
@@ -266,7 +291,13 @@ const refreshToken = async (req, res, next) => {
 
     const user = await User.findById(decoded.id).select('+refreshToken');
     if (!user || user.refreshToken !== token) {
-      return res.status(401).json({ success: false, message: 'Refresh token revoked.' });
+      // Token reuse detected — invalidate all tokens for this user (rotation violation)
+      if (user) {
+        user.refreshToken = null;
+        await user.save({ validateBeforeSave: false });
+      }
+      clearAuthCookies(res);
+      return res.status(401).json({ success: false, message: 'Refresh token revoked. Please login again.' });
     }
 
     const newAccessToken  = generateAccessToken(user._id);
@@ -274,9 +305,11 @@ const refreshToken = async (req, res, next) => {
     user.refreshToken = newRefreshToken;
     await user.save({ validateBeforeSave: false });
 
+    setAuthCookies(res, newAccessToken, newRefreshToken);
+
     return res.status(200).json({
       success: true, message: 'Tokens refreshed.',
-      data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
+      data: { user: sanitizeUser(user), accessToken: newAccessToken, refreshToken: newRefreshToken },
     });
   } catch (error) { next(error); }
 };
@@ -285,6 +318,7 @@ const refreshToken = async (req, res, next) => {
 const logout = async (req, res, next) => {
   try {
     await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
+    clearAuthCookies(res);
     return res.status(200).json({ success: true, message: 'Logged out.' });
   } catch (error) { next(error); }
 };
@@ -322,4 +356,4 @@ const changePassword = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-module.exports = { register, verifyOTP, resendOTP, login, refreshToken, logout, getMe, updateProfile, changePassword };
+module.exports = { register, verifyOTP, resendOTP, login, refreshToken: refreshTokenFn, logout, getMe, updateProfile, changePassword };

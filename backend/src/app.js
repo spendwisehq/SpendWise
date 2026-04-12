@@ -1,11 +1,12 @@
 // backend/src/app.js
 
 require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const helmet  = require('helmet');
-const morgan  = require('morgan');
-const path    = require('path');
+const express      = require('express');
+const cors         = require('cors');
+const helmet       = require('helmet');
+const morgan       = require('morgan');
+const path         = require('path');
+const cookieParser = require('cookie-parser');
 
 const { validateEnv, env }       = require('./config/env');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
@@ -89,8 +90,8 @@ app.use(morgan(env.isDev ? 'dev' : 'combined'));
 //─────────────────────────────────────
 // BODY PARSING
 //─────────────────────────────────────
-app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(validateRequestSize);
+app.use(cookieParser());
 app.use(express.json({ limit: `${env.upload.maxSizeMb}mb` }));
 app.use(express.urlencoded({ extended: true, limit: `${env.upload.maxSizeMb}mb` }));
 app.use('/uploads', express.static(path.join(__dirname, '..', env.upload.dir)));
@@ -141,6 +142,7 @@ app.get('/metrics', (req, res) => {
 const { aiLimiter, paymentLimiter, uploadLimiter } = require('./middleware/rateLimiter');
 
 app.use('/api/auth',          require('./routes/auth.routes'));
+app.use('/api/friends',       require('./routes/friend.routes'));
 app.use('/api/transactions',  require('./routes/transaction.routes'));
 app.use('/api/categories',    require('./routes/category.routes'));
 app.use('/api/automation',    uploadLimiter, require('./routes/automation.routes'));   // Stage 5
