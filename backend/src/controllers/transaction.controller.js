@@ -3,6 +3,7 @@
 const Transaction = require('../models/Transaction.model');
 const Category    = require('../models/Category.model');
 const Budget      = require('../models/Budget.model');
+const { invalidateUserCache } = require('../services/aiCache.service');
 
 //─────────────────────────────────────
 // HELPER — build filter query
@@ -161,6 +162,9 @@ const createTransaction = async (req, res, next) => {
     if (type === 'expense' && resolvedCategoryId) {
       await syncBudget(req.user._id, transaction.date, resolvedCategoryId, amount);
     }
+
+    // Invalidate AI cache so next analysis reflects new data
+    await invalidateUserCache(req.user._id);
 
     return res.status(201).json({
       success: true,

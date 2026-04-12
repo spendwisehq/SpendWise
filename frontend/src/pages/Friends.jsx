@@ -14,25 +14,50 @@ const InviteModal = ({ groupId, groupName, onClose }) => {
   const [method,  setMethod]  = useState('email');
   const [value,   setValue]   = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  const handleInvite = async () => {
-    if (!value.trim()) { toast.error('Please enter an email or phone'); return; }
+  // Search effect for global friends
+  useEffect(() => {
+    if (groupId || value.length < 3 || method !== 'email') {
+      setSearchResults([]);
+      return;
+    }
+    
+    const timeoutId = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await api.get(`/friends/search?q=${encodeURIComponent(value)}`);
+        setSearchResults(res.data?.data || []);
+      } catch (err) {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [value, groupId, method]);
+
+  const handleInvite = async (targetEmail = value) => {
+    if (!targetEmail.trim()) { toast.error('Please enter an email or phone'); return; }
     setLoading(true);
     try {
       if (groupId) {
         await api.post(`/groups/${groupId}/members`, {
-          email: method === 'email' ? value : undefined,
-          phone: method === 'sms'   ? value : undefined,
-          name:  value.split('@')[0],
+          email: method === 'email' ? targetEmail : undefined,
+          phone: method === 'sms'   ? targetEmail : undefined,
+          name:  targetEmail.split('@')[0],
         });
-        toast.success(`Invitation sent to ${value}!`);
+        toast.success(`Invitation sent to ${targetEmail}!`);
       } else {
-        // Friend request without group
-        toast.success(`Invitation sent to ${value}! (Feature coming soon)`);
+        // Friend request or email invite
+        const res = await api.post(`/friends/invite`, { email: targetEmail });
+        toast.success(res.message || `Request sent to ${targetEmail}!`);
       }
       onClose();
     } catch (err) {
-      toast.error(err.message || 'Failed to send invite');
+      toast.error(err.message || 'Failed to send request');
     } finally { setLoading(false); }
   };
 
@@ -55,29 +80,55 @@ const InviteModal = ({ groupId, groupName, onClose }) => {
             </button>
           </div>
 
-          <div className="form-group">
-            <label>{method === 'email' ? 'Email Address' : 'Phone Number'}</label>
+          <div className="form-group" style={{ position: 'relative' }}>
+            <label>{method === 'email' ? (groupId ? 'Email Address' : 'Search Name or Email') : 'Phone Number'}</label>
             <input
               className="form-input"
-              type={method === 'email' ? 'email' : 'tel'}
+              type={method === 'email' && groupId ? 'email' : 'text'}
               value={value}
               onChange={e => setValue(e.target.value)}
-              placeholder={method === 'email' ? 'friend@example.com' : '+91 9876543210'}
+              placeholder={method === 'email' ? (groupId ? 'friend@example.com' : 'Search or enter email...') : '+91 9876543210'}
               onKeyDown={e => e.key === 'Enter' && handleInvite()}
               autoFocus
             />
+            {isSearching && <div style={{ position: 'absolute', right: '10px', top: '35px', fontSize: '12px', color: 'gray' }}>Searching...</div>}
+            
+            {/* Search Results Dropdown */}
+            {!groupId && searchResults.length > 0 && method === 'email' && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0,
+                background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                borderRadius: '8px', marginTop: '4px', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                maxHeight: '200px', overflowY: 'auto'
+              }}>
+                {searchResults.map(u => (
+                  <div key={u._id} 
+                    style={{ padding: '10px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)' }}
+                    onClick={() => handleInvite(u.email)}>
+                    <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'var(--color-primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                      {u.initials || u.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '14px', fontWeight: '600' }}>{u.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>{u.email}</div>
+                    </div>
+                    <UserPlus size={16} color="var(--color-primary)" />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <p className="invite-note">
             {method === 'email'
-              ? '📧 An invitation link will be sent to their email'
+              ? (groupId ? '📧 An invitation link will be sent to their email' : '📧 Search SpendWise users or enter an email to invite')
               : '📱 An SMS invitation will be sent to their phone'}
           </p>
 
           <div className="modal__footer">
             <button className="btn btn--ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn--primary" onClick={handleInvite} disabled={loading}>
-              {loading ? 'Sending...' : 'Send Invitation'}
+            <button className="btn btn--primary" onClick={() => handleInvite(value)} disabled={loading}>
+              {loading ? 'Sending...' : (searchResults.length > 0 && !groupId ? 'Invite by Email Instead' : 'Send Invitation')}
             </button>
           </div>
         </div>
@@ -123,7 +174,9 @@ const Friends = () => {
               friendMap[key].owedToMe += d.amount;
               if (!friendMap[key].groups.includes(g.name)) friendMap[key].groups.push(g.name);
             });
-          } catch {}
+          } catch (err) {
+            console.warn(`Failed to fetch balances for group ${g.name}:`, err.message);
+          }
         }));
 
         setFriends(Object.values(friendMap));

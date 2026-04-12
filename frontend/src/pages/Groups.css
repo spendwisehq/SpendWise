@@ -116,7 +116,11 @@
 .g-field label { font-size:11px; font-weight:600; color:var(--color-text-secondary); text-transform:uppercase; letter-spacing:0.4px; }
 .g-input { height:40px; padding:0 12px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:8px; color:var(--color-text-primary); font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-family:inherit; transition:border-color 0.12s; }
 .g-input:focus { border-color:var(--color-primary); }
+.g-input--error { border-color:var(--color-danger); }
+.g-input--error:focus { border-color:var(--color-danger); }
 .g-input--sm { width:90px!important; text-align:right; }
+
+.g-field-error { font-size:11px; color:var(--color-danger); margin-top:2px; display:block; }
 .g-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 
 .g-type-grid { display:flex; flex-wrap:wrap; gap:6px; }

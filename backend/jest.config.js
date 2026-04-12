@@ -11,4 +11,7 @@ module.exports = {
   verbose:               true,
   forceExit:             true,
   detectOpenHandles:     true,
+  moduleNameMapper: {
+    '^otplib$': '<rootDir>/src/__tests__/__mocks__/otplib.js',
+  },
 };

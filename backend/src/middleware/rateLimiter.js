@@ -4,7 +4,7 @@ const rateLimit          = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { env }            = require('../config/env');
 
-const generalLimiter = process.env.NODE_ENV === 'test'
+const generalLimiter = env.isTest
   ? (req, res, next) => next()
   : rateLimit({
       windowMs: env.rateLimit.windowMs,
@@ -14,8 +14,8 @@ const generalLimiter = process.env.NODE_ENV === 'test'
       message: { success: false, message: 'Too many requests. Please try again later.' },
     });
 
-const authLimiter = process.env.NODE_ENV === 'test'
-  ? (req, res, next) => next()  // passthrough in tests
+const authLimiter = env.isTest
+  ? (req, res, next) => next()
   : rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 10,
@@ -24,12 +24,33 @@ const authLimiter = process.env.NODE_ENV === 'test'
       message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
     });
 
-const aiLimiter = rateLimit({
+// IP-based AI limiter (applied at app level before auth)
+const aiLimiter = env.isTest
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 60 * 1000,
+      max:      10,
+      standardHeaders: true,
+      legacyHeaders:   false,
+      message: { success: false, message: 'Too many AI requests. Please wait a moment.' },
+    });
+
+// Per-user AI limiter (applied inside routes, after auth middleware)
+// Premium users: 30 req/min, Free users: 10 req/min
+const userAiLimiter = env.isTest
+  ? (req, res, next) => next()
+  : rateLimit({
   windowMs: 60 * 1000,
-  max:      10,
+  max:      (req) => {
+    const plan = req.user?.plan;
+    if (plan === 'premium' || plan === 'growth' || req.user?.isPremium) return 30;
+    if (plan === 'starter') return 20;
+    return 10; // free tier
+  },
+  keyGenerator: (req) => `user_ai_${req.user?._id?.toString() || ipKeyGenerator(req)}`,
   standardHeaders: true,
   legacyHeaders:   false,
-  message: { success: false, message: 'Too many AI requests. Please wait a moment.' },
+  message: { success: false, message: 'AI rate limit exceeded. Please wait a moment.' },
 });
 
 const uploadLimiter = rateLimit({
@@ -57,4 +78,4 @@ const apiPlatformLimiter = rateLimit({
   message: { success: false, message: 'Daily API limit reached. Upgrade your plan.' },
 });
 
-module.exports = { generalLimiter, authLimiter, aiLimiter, uploadLimiter, paymentLimiter, apiPlatformLimiter };
+module.exports = { generalLimiter, authLimiter, aiLimiter, userAiLimiter, uploadLimiter, paymentLimiter, apiPlatformLimiter };

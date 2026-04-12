@@ -7,19 +7,15 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user,    setUser]    = useState(null);
-  const [token,   setToken]   = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load saved session on mount
+  // Hydrate user from localStorage on mount (fast), then validate with server
   useEffect(() => {
-    const savedToken = localStorage.getItem('spendwise_token');
-    const savedUser  = localStorage.getItem('spendwise_user');
-    if (savedToken && savedUser) {
+    const savedUser = localStorage.getItem('spendwise_user');
+    if (savedUser) {
       try {
-        setToken(savedToken);
         setUser(JSON.parse(savedUser));
       } catch {
-        localStorage.removeItem('spendwise_token');
         localStorage.removeItem('spendwise_user');
       }
     }
@@ -28,34 +24,33 @@ export const AuthProvider = ({ children }) => {
 
   const login = useCallback(async (email, password) => {
     const response = await authAPI.login({ email, password });
-    const { user: newUser, accessToken } = response.data;
-    localStorage.setItem('spendwise_token', accessToken);
+    const { user: newUser } = response;
+    // Token is set as httpOnly cookie by backend — not accessible in JS
     localStorage.setItem('spendwise_user', JSON.stringify(newUser));
-    setToken(accessToken);
     setUser(newUser);
     return newUser;
   }, []);
 
   const register = useCallback(async (name, email, password, currency) => {
-    // monthlyIncome removed from registration — set via monthly popup instead
     const response = await authAPI.register({ name, email, password, currency, monthlyIncome: 0 });
-    const { user: newUser, accessToken } = response.data;
-    localStorage.setItem('spendwise_token', accessToken);
+    // Register returns { email, requiresVerification } — no user/token
+    return response;
+  }, []);
+
+  const verifyOTP = useCallback(async (email, otp) => {
+    const response = await authAPI.verifyOTP({ email, otp });
+    const { user: newUser } = response;
     localStorage.setItem('spendwise_user', JSON.stringify(newUser));
-    setToken(accessToken);
     setUser(newUser);
     return newUser;
   }, []);
 
   const logout = useCallback(async () => {
     try { await authAPI.logout(); } catch {}
-    localStorage.removeItem('spendwise_token');
     localStorage.removeItem('spendwise_user');
-    setToken(null);
     setUser(null);
   }, []);
 
-  // ── KEY FIX: updateUser now always saves to localStorage and merges properly ──
   const updateUser = useCallback((updatedUser) => {
     setUser(prev => {
       const merged = { ...prev, ...updatedUser };
@@ -64,11 +59,10 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  // ── Refresh user from server (for when data changes externally) ──
   const refreshUser = useCallback(async () => {
     try {
       const res = await authAPI.getMe();
-      const freshUser = res.data.user;
+      const freshUser = res.user;
       localStorage.setItem('spendwise_user', JSON.stringify(freshUser));
       setUser(freshUser);
       return freshUser;
@@ -77,9 +71,9 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, token, loading,
-      isAuthenticated: Boolean(token && user),
-      login, register, logout, updateUser, refreshUser,
+      user, loading,
+      isAuthenticated: Boolean(user),
+      login, register, verifyOTP, logout, updateUser, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>

@@ -5,8 +5,9 @@
   "scripts": {
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm start",
+    "dev:mobile": "cd mobile && npx expo start",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "install:all": "cd backend && npm install && cd ../frontend && npm install"
+    "install:all": "cd backend && npm install && cd ../frontend && npm install && cd ../mobile && npm install"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"

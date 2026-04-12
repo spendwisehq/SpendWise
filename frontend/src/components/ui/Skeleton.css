@@ -1,0 +1,28 @@
+.ui-skeleton {
+  background: var(--color-surface-3);
+  border-radius: var(--radius-md);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  overflow: hidden;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* Shapes */
+.ui-skeleton--text   { height: 14px; border-radius: var(--radius-sm); }
+.ui-skeleton--title  { height: 22px; width: 60%; border-radius: var(--radius-sm); }
+.ui-skeleton--circle { border-radius: 50%; }
+.ui-skeleton--rect   { border-radius: var(--radius-md); }
+.ui-skeleton--avatar { width: 40px; height: 40px; border-radius: 50%; }
+
+/* Stacked skeleton rows */
+.ui-skeleton-stack {
+  display: flex; flex-direction: column;
+  gap: var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-skeleton { animation: none; opacity: 0.6; }
+}

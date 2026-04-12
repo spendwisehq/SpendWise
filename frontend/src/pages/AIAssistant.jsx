@@ -1,8 +1,9 @@
 // frontend/src/pages/AIAssistant.jsx
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, User, RefreshCw, Lightbulb, TrendingUp, Target, Brain } from 'lucide-react';
-import api from '../api/axios';
+import { Send, Sparkles, User, RefreshCw } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import aiAPI from '../api/ai.api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import './AIAssistant.css';
@@ -25,31 +26,20 @@ const AIAssistant = () => {
       timestamp: new Date(),
     },
   ]);
-  const [input,   setInput]   = useState('');
-  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const sendMessage = async (text) => {
-    const message = text || input.trim();
-    if (!message || loading) return;
-
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: message, timestamp: new Date() }]);
-    setLoading(true);
-
-    try {
-      const res = await api.post('/ai/chat', { message });
+  const chatMutation = useMutation({
+    mutationFn: (message) => aiAPI.chat(message),
+    onSuccess: (res) => {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: res.data.reply,
         timestamp: new Date(res.data.timestamp),
       }]);
-    } catch (err) {
+    },
+    onError: () => {
       toast.error('AI is unavailable right now');
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -57,10 +47,23 @@ const AIAssistant = () => {
         timestamp: new Date(),
         isError: true,
       }]);
-    } finally {
-      setLoading(false);
+    },
+    onSettled: () => {
       inputRef.current?.focus();
-    }
+    },
+  });
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = (text) => {
+    const message = text || input.trim();
+    if (!message || chatMutation.isPending) return;
+
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: message, timestamp: new Date() }]);
+    chatMutation.mutate(message);
   };
 
   const handleKeyDown = (e) => {
@@ -116,7 +119,7 @@ const AIAssistant = () => {
             </div>
           ))}
 
-          {loading && (
+          {chatMutation.isPending && (
             <div className="message message--assistant">
               <div className="message__avatar"><Sparkles size={14} /></div>
               <div className="message__bubble">
@@ -133,7 +136,7 @@ const AIAssistant = () => {
         {/* Quick Prompts */}
         <div className="quick-prompts">
           {QUICK_PROMPTS.map((p, i) => (
-            <button key={i} className="quick-prompt" onClick={() => sendMessage(p.text)} disabled={loading}>
+            <button key={i} className="quick-prompt" onClick={() => sendMessage(p.text)} disabled={chatMutation.isPending}>
               <span>{p.icon}</span>
               <span>{p.text}</span>
             </button>
@@ -150,14 +153,14 @@ const AIAssistant = () => {
             placeholder="Ask me anything about your finances..."
             className="chat-input"
             rows={1}
-            disabled={loading}
+            disabled={chatMutation.isPending}
           />
           <button
             className="send-btn"
             onClick={() => sendMessage()}
-            disabled={!input.trim() || loading}
+            disabled={!input.trim() || chatMutation.isPending}
           >
-            {loading ? <RefreshCw size={18} className="spin" /> : <Send size={18} />}
+            {chatMutation.isPending ? <RefreshCw size={18} className="spin" /> : <Send size={18} />}
           </button>
         </div>
       </div>

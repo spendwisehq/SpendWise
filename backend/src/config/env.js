@@ -9,6 +9,10 @@ const requiredEnvVars = [
   'JWT_EXPIRES_IN',
   'GROQ_API_KEY',
   'FRONTEND_URL',
+  'SMTP_HOST',
+  'SMTP_PORT',
+  'SMTP_USER',
+  'SMTP_PASS',
 ];
 
 const validateEnv = () => {
@@ -26,6 +30,7 @@ const env = {
   nodeEnv: process.env.NODE_ENV,
   isDev:   process.env.NODE_ENV === 'development',
   isProd:  process.env.NODE_ENV === 'production',
+  isTest:  process.env.NODE_ENV === 'test',
 
   db: {
     uri:  process.env.MONGODB_URI,
@@ -37,6 +42,13 @@ const env = {
     expiresIn:        process.env.JWT_EXPIRES_IN,
     refreshSecret:    process.env.JWT_REFRESH_SECRET,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
+  },
+
+  email: {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT, 10),
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 
   groq: {

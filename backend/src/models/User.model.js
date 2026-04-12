@@ -34,6 +34,9 @@ const userSchema = new mongoose.Schema({
   isEmailVerified:          { type: Boolean, default: false },
   emailVerificationOTP:     { type: String, default: null, select: false },
   emailVerificationExpires: { type: Date,   default: null, select: false },
+  // ── Friends ─────────────────────────────────────────
+  friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   // ────────────────────────────────────────────────────
   isActive:    { type: Boolean, default: true },
   lastLoginAt: { type: Date, default: null },

@@ -11,7 +11,10 @@ const aiReportSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['weekly', 'monthly', 'custom', 'anomaly', 'budget_prediction'],
+      enum: [
+        'weekly', 'monthly', 'custom', 'anomaly', 'budget_prediction',
+        'analysis_cache', 'score_cache', 'recommendations_cache',
+      ],
       required: true,
     },
     period: {
@@ -69,12 +72,19 @@ const aiReportSchema = new mongoose.Schema(
     rawAiResponse: { type: String, default: null, select: false },
     isRead:        { type: Boolean, default: false },
     generatedAt:   { type: Date, default: Date.now },
+
+    // Cache fields
+    cacheKey:       { type: String },
+    cachedResponse: { type: mongoose.Schema.Types.Mixed },
+    expiresAt:      { type: Date },
   },
   { timestamps: true }
 );
 
 aiReportSchema.index({ userId: 1, type: 1, generatedAt: -1 });
 aiReportSchema.index({ userId: 1, isRead: 1 });
+aiReportSchema.index({ userId: 1, type: 1, cacheKey: 1 });
+aiReportSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const AIReport = mongoose.model('AIReport', aiReportSchema);
 module.exports = AIReport;
