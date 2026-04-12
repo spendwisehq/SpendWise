@@ -29,7 +29,6 @@ const Transactions = () => {
   const updateMutation = useUpdateTransaction();
   const deleteMutation = useDeleteTransaction();
 
-  // Listen for keyboard shortcut (N key) to open new transaction modal
   useEffect(() => {
     const handleNewTxn = () => setModal({});
     window.addEventListener('spendwise:new-transaction', handleNewTxn);
@@ -59,7 +58,6 @@ const Transactions = () => {
 
   return (
     <div className="transactions-page">
-      {/* Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Transactions</h1>
@@ -88,7 +86,6 @@ const Transactions = () => {
         onEdit={setModal} onDelete={setDeleteId} onAdd={() => setModal({})}
       />
 
-      {/* Pagination */}
       {pagination.totalPages > 1 && (
         <div className="pagination">
           <button className="btn btn--ghost btn--sm" disabled={page === 1}
