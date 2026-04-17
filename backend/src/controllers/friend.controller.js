@@ -266,7 +266,8 @@ const getFriends = async (req, res, next) => {
 
     const all = await Friend.find({
       $or: [{ requester: userId }, { recipient: userId }],
-      recipient: { $ne: userId },
+      invitedEmail: null,
+      invitedPhone: null,
     })
       .populate('requester', USER_FIELDS)
       .populate('recipient', USER_FIELDS)

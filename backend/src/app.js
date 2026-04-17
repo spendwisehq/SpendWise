@@ -12,56 +12,15 @@ const { validateEnv, env }       = require('./config/env');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { generalLimiter }         = require('./middleware/rateLimiter');
 
-const {
-  preventHPP,
-  sanitizeXSS,
-  validateRequestSize,
-  detectSuspiciousActivity,
-  validateApiKeyFormat,
-} = require('./middleware/security.middleware');
-
-const {
-  compressResponse,
-  trackResponseTime,
-  setCacheHeaders,
-  attachRequestId,
-  enforcePaginationLimits,
-  collectMetrics,
-  getMetrics,
-} = require('./middleware/performance.middleware');
-
 validateEnv();
 
 const app = express();
 
 //─────────────────────────────────────
-// PERFORMANCE — first
+// SECURITY
 //─────────────────────────────────────
-app.use(compressResponse);
-app.use(trackResponseTime);
-app.use(attachRequestId);
-app.use(collectMetrics);
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-//─────────────────────────────────────
-// SECURITY HEADERS
-//─────────────────────────────────────
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'"],
-      styleSrc:    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      fontSrc:     ["'self'", 'https://fonts.gstatic.com'],
-      imgSrc:      ["'self'", 'data:', 'https://res.cloudinary.com'],
-      connectSrc:  ["'self'", 'https://api.groq.com'],
-    },
-  },
-}));
-
-//─────────────────────────────────────
-// CORS
-//─────────────────────────────────────
 const allowedOrigins = [
   env.frontend.url,
   'http://localhost:5173',
@@ -78,12 +37,12 @@ app.use(cors({
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods:      ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
 }));
 
 //─────────────────────────────────────
-// LOGGING
+// LOGGING + PARSING
 //─────────────────────────────────────
 app.use(morgan(env.isDev ? 'dev' : 'combined'));
 
@@ -92,23 +51,10 @@ app.use(morgan(env.isDev ? 'dev' : 'combined'));
 //─────────────────────────────────────
 app.use(validateRequestSize);
 app.use(cookieParser());
+app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: `${env.upload.maxSizeMb}mb` }));
 app.use(express.urlencoded({ extended: true, limit: `${env.upload.maxSizeMb}mb` }));
 app.use('/uploads', express.static(path.join(__dirname, '..', env.upload.dir)));
-
-//─────────────────────────────────────
-// SECURITY MIDDLEWARE
-//─────────────────────────────────────
-app.use(preventHPP);
-app.use(sanitizeXSS);
-app.use(detectSuspiciousActivity);
-app.use(validateApiKeyFormat);
-
-//─────────────────────────────────────
-// PERFORMANCE MIDDLEWARE
-//─────────────────────────────────────
-app.use(setCacheHeaders);
-app.use(enforcePaginationLimits);
 
 //─────────────────────────────────────
 // RATE LIMITING
@@ -116,7 +62,7 @@ app.use(enforcePaginationLimits);
 app.use('/api/', generalLimiter);
 
 //─────────────────────────────────────
-// HEALTH + METRICS
+// HEALTH CHECK
 //─────────────────────────────────────
 app.get('/health', async (req, res) => {
   const { testConnection } = require('./config/db');
@@ -130,10 +76,6 @@ app.get('/health', async (req, res) => {
     database:    { type: 'MongoDB', ...dbStatus },
     timestamp:   new Date().toISOString(),
   });
-});
-
-app.get('/metrics', (req, res) => {
-  res.json({ success: true, data: getMetrics() });
 });
 
 //─────────────────────────────────────

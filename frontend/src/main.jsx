@@ -1,6 +1,3 @@
-// frontend/src/main.jsx
-// ⚠️ ONLY import App here — NO CSS imports in this file
-
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

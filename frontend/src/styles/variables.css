@@ -1,47 +1,54 @@
-/* frontend/src/styles/variables.css */
-/* DO NOT import this file anywhere except global.css */
-
 :root {
-  /* Brand */
-  --color-primary:       #6366F1;
-  --color-primary-dark:  #4F46E5;
-  --color-primary-light: rgba(99,102,241,0.1);
+  /* ───────── COLORS ───────── */
 
-  /* Semantic */
+  --color-primary: #6366F1;          /* Indigo (modern fintech) */
+  --color-primary-dark: #4F46E5;
+  --color-primary-light: #EEF2FF;
+
   --color-success: #10B981;
-  --color-danger:  #EF4444;
+  --color-danger: #EF4444;
   --color-warning: #F59E0B;
-  --color-info:    #3B82F6;
+  --color-info: #3B82F6;
 
-  /* Light theme (default) */
-  --color-bg:          #F8FAFC;
-  --color-bg-2:        #F1F5F9;
-  --color-surface:     #FFFFFF;
-  --color-surface-2:   #F8FAFC;
-  --color-surface-3:   #F1F5F9;
-  --color-border:      rgba(0,0,0,0.07);
-  --color-border-strong: rgba(0,0,0,0.13);
+  /* Backgrounds */
+  --color-bg: #F8FAFC;               /* soft gray (premium) */
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F1F5F9;
 
-  --color-text-primary:   #0F172A;
+  /* Borders */
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-strong: rgba(0, 0, 0, 0.12);
+
+  /* Text */
+  --color-text-primary: #0F172A;
   --color-text-secondary: #475569;
-  --color-text-muted:     #94A3B8;
+  --color-text-muted: #94A3B8;
+  --color-text-inverse: #FFFFFF;
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 10px 30px rgba(0,0,0,0.10);
+  /* ───────── SPACING ───────── */
 
-  /* Spacing */
-  --space-1: 4px;  --space-2: 8px;   --space-3: 12px;
-  --space-4: 16px; --space-5: 20px;  --space-6: 24px;
-  --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
 
-  /* Radius */
-  --radius-sm:   6px;
-  --radius-md:   10px;
-  --radius-lg:   14px;
-  --radius-xl:   18px;
-  --radius-2xl:  24px;
+  /* ───────── RADIUS ───────── */
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
   --radius-full: 9999px;
+
+  /* ───────── SHADOWS ───────── */
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 6px 20px rgba(0,0,0,0.08);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
 
   /* Typography — Font Family */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -73,26 +80,37 @@
   --transition-slow: 0.4s ease;
 
   /* Layout */
-  --sidebar-width: 252px;
-  --header-height: 60px;
+  --sidebar-width: 250px;
+  --header-height: 64px;
+
+  /* ── Aliases used by component CSS files (light theme) ── */
+  --color-bg-primary:   #F8FAFC;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary:  #F1F5F9;
 }
 
-/* Dark theme */
+/* 🌙 DARK MODE (REAL PRODUCT LEVEL) */
+
 [data-theme="dark"] {
-  --color-bg:          #030712;
-  --color-bg-2:        #0D1117;
-  --color-surface:     #0F172A;
-  --color-surface-2:   #1E293B;
-  --color-surface-3:   #293548;
-  --color-border:      rgba(255,255,255,0.07);
-  --color-border-strong: rgba(255,255,255,0.13);
+  --color-bg: #020617;
+  --color-surface: #0F172A;
+  --color-surface-2: #1E293B;
 
-  --color-text-primary:   #F1F5F9;
-  --color-text-secondary: #94A3B8;
-  --color-text-muted:     #475569;
-  --color-primary-light:  rgba(99,102,241,0.15);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.15);
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
-  --shadow-lg: 0 10px 30px rgba(0,0,0,0.6);
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #CBD5F5;
+  --color-text-muted: #64748B;
+
+  --color-primary-light: #1E1B4B;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 6px 20px rgba(0,0,0,0.5);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.6);
+
+  /* ── Aliases used by component CSS files (dark theme) ── */
+  --color-bg-primary:   #020617;
+  --color-bg-secondary: #0F172A;
+  --color-bg-tertiary:  #1E293B;
 }

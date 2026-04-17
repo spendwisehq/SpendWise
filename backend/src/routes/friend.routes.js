@@ -29,8 +29,8 @@ router.post('/invite/sms',   inviteBySMS);
 // PUT    /api/friends/:id/accept
 // PUT    /api/friends/:id/decline
 // DELETE /api/friends/:id
-router.put('/:id/accept',  acceptRequest);
-router.put('/:id/decline', declineRequest);
-router.delete('/:id',      removeFriend);
+router.put('/:id/accept',   acceptRequest);
+router.put('/:id/decline',  declineRequest);
+router.delete('/:id',       removeFriend);
 
 module.exports = router;
