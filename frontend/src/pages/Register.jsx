@@ -53,7 +53,7 @@ const OTPInput = ({ value, onChange }) => {
           ref={el => inputs.current[i] = el}
           type="text" inputMode="numeric" maxLength={1}
           value={digits[i] || ''}
-          onChange={() => {}} // handled in onKeyDown
+          onChange={() => {}}
           onKeyDown={e => handleKey(i, e)}
           onPaste={handlePaste}
           autoFocus={i === 0}
@@ -93,14 +93,22 @@ const OTPScreen = ({ email, name, onSuccess }) => {
     setLoading(true);
     try {
       const res = await api.post('/auth/verify-otp', { email, otp });
-      const { user, accessToken, refreshToken } = res.data;
-      // Store tokens and log in
+
+      // ✅ FIX: Backend nests tokens under res.data.data, not res.data directly
+      const { user, accessToken, refreshToken } = res.data?.data ?? res.data;
+
       localStorage.setItem('accessToken',  accessToken);
       localStorage.setItem('refreshToken', refreshToken);
+
       toast.success('Email verified! Welcome to SpendWise 🎉');
       onSuccess({ user, accessToken, refreshToken });
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Invalid OTP. Please try again.');
+      toast.error(
+        err.response?.data?.message ||
+        err.response?.data?.error   ||
+        err.response?.data?.msg     ||
+        'Invalid OTP. Please try again.'
+      );
       setOtp('');
     } finally { setLoading(false); }
   };
@@ -113,14 +121,18 @@ const OTPScreen = ({ email, name, onSuccess }) => {
       setCountdown(60);
       setOtp('');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to resend OTP');
+      toast.error(
+        err.response?.data?.message ||
+        err.response?.data?.error   ||
+        err.response?.data?.msg     ||
+        'Failed to resend OTP'
+      );
     } finally { setResending(false); }
   };
 
   return (
     <div style={S.page}>
       <div style={S.card}>
-        {/* Icon */}
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <div style={S.otpIcon}>🔐</div>
           <h2 style={S.title}>Verify your email</h2>
@@ -130,10 +142,8 @@ const OTPScreen = ({ email, name, onSuccess }) => {
           </p>
         </div>
 
-        {/* OTP Boxes */}
         <OTPInput value={otp} onChange={setOtp} />
 
-        {/* Verify Button */}
         <button
           onClick={verify}
           disabled={loading || otp.length !== 6}
@@ -149,7 +159,6 @@ const OTPScreen = ({ email, name, onSuccess }) => {
           ) : 'Verify & Continue'}
         </button>
 
-        {/* Resend */}
         <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
           {countdown > 0 ? (
             <p style={{ ...S.sub, fontSize: 13 }}>
@@ -177,10 +186,10 @@ const OTPScreen = ({ email, name, onSuccess }) => {
 
 // ── Registration Form ─────────────────────────────────────────────────────────
 const Register = () => {
-  const navigate     = useNavigate();
-  const { login: authLogin } = useAuth(); // use login to set user after OTP
+  const navigate             = useNavigate();
+  const { login: authLogin } = useAuth();
 
-  const [step, setStep] = useState('register'); // 'register' | 'otp'
+  const [step,            setStep]            = useState('register');
   const [registeredEmail, setRegisteredEmail] = useState('');
   const [registeredName,  setRegisteredName]  = useState('');
 
@@ -194,11 +203,11 @@ const Register = () => {
 
   const validate = () => {
     const e = {};
-    if (!form.name || form.name.length < 2)     e.name = 'Name must be at least 2 characters';
-    if (!form.email)                             e.email = 'Email is required';
+    if (!form.name || form.name.length < 2)        e.name = 'Name must be at least 2 characters';
+    if (!form.email)                               e.email = 'Email is required';
     if (!form.password || form.password.length < 6) e.password = 'Password must be at least 6 characters';
-    if (!/\d/.test(form.password))               e.password = 'Password must contain at least one number';
-    if (form.password !== form.confirmPassword)  e.confirmPassword = 'Passwords do not match';
+    if (!/\d/.test(form.password))                 e.password = 'Password must contain at least one number';
+    if (form.password !== form.confirmPassword)    e.confirmPassword = 'Passwords do not match';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -226,14 +235,22 @@ const Register = () => {
       toast.success('Account created! Check your email for the OTP 📧');
       setStep('otp');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Registration failed');
+      // ✅ FIX: Backend returns { success: false, message: "An account with this email already exists." }
+      // This now correctly reads res.data.message and shows the real error instead of generic fallback.
+      toast.error(
+        err.response?.data?.message ||
+        err.response?.data?.error   ||
+        err.response?.data?.msg     ||
+        'Registration failed'
+      );
     } finally { setLoading(false); }
   };
 
-  // Called after OTP verified successfully
+  // ✅ FIX: Call authLogin to actually set the user in AuthContext after OTP verification.
+  // Previously this was just calling navigate() without setting auth state,
+  // which left the app in a logged-out state despite successful verification.
   const handleOTPSuccess = ({ user, accessToken, refreshToken }) => {
-    // AuthContext login — store tokens and set user
-    // We call the same flow as normal login
+    authLogin({ user, accessToken, refreshToken });
     navigate('/dashboard');
   };
 
@@ -248,7 +265,6 @@ const Register = () => {
     outline: 'none',
   });
 
-  // Show OTP screen if on step 2
   if (step === 'otp') {
     return (
       <OTPScreen
@@ -263,7 +279,6 @@ const Register = () => {
     <div style={S.page}>
       <div style={S.card}>
 
-        {/* Logo */}
         <div style={S.logoWrap}>
           <div style={S.logoIcon}>SW</div>
           <h1 style={S.logoText}>SpendWise</h1>
@@ -274,7 +289,6 @@ const Register = () => {
 
         <form onSubmit={handleSubmit} style={S.form}>
 
-          {/* Name */}
           <div style={S.field}>
             <label style={S.label}>Full Name</label>
             <input name="name" type="text" value={form.name}
@@ -283,7 +297,6 @@ const Register = () => {
             {errors.name && <span style={S.error}>{errors.name}</span>}
           </div>
 
-          {/* Email */}
           <div style={S.field}>
             <label style={S.label}>Email</label>
             <input name="email" type="email" value={form.email}
@@ -292,7 +305,6 @@ const Register = () => {
             {errors.email && <span style={S.error}>{errors.email}</span>}
           </div>
 
-          {/* Password */}
           <div style={S.field}>
             <label style={S.label}>Password</label>
             <div style={{ position: 'relative' }}>
@@ -307,7 +319,6 @@ const Register = () => {
             {errors.password && <span style={S.error}>{errors.password}</span>}
           </div>
 
-          {/* Confirm Password */}
           <div style={S.field}>
             <label style={S.label}>Confirm Password</label>
             <input name="confirmPassword" type="password"
@@ -316,7 +327,6 @@ const Register = () => {
             {errors.confirmPassword && <span style={S.error}>{errors.confirmPassword}</span>}
           </div>
 
-          {/* Currency + Income */}
           <div style={S.twoCol}>
             <div style={S.field}>
               <label style={S.label}>Currency</label>
@@ -352,23 +362,23 @@ const Register = () => {
 };
 
 const S = {
-  page:    { minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
-  card:    { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: 'var(--shadow-md)' },
-  logoWrap:{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem', justifyContent: 'center' },
-  logoIcon:{ width: 40, height: 40, background: 'var(--color-primary)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' },
-  logoText:{ fontSize: '22px', fontWeight: 600, color: 'var(--color-text-primary)' },
-  otpIcon: { fontSize: '3rem', marginBottom: '0.75rem' },
-  title:   { fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: '4px' },
-  sub:     { fontSize: '14px', color: 'var(--color-text-secondary)', textAlign: 'center', marginBottom: '1.5rem', lineHeight: 1.6 },
-  form:    { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  field:   { display: 'flex', flexDirection: 'column', gap: '6px' },
-  twoCol:  { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
-  label:   { fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' },
-  eyeBtn:  { position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: 0 },
-  error:   { fontSize: '12px', color: 'var(--color-danger)' },
-  btn:     { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', fontSize: '15px', fontWeight: 600, marginTop: '0.5rem', cursor: 'pointer' },
-  btnInner:{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
-  spinner: { display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  page:       { minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
+  card:       { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: 'var(--shadow-md)' },
+  logoWrap:   { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem', justifyContent: 'center' },
+  logoIcon:   { width: 40, height: 40, background: 'var(--color-primary)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' },
+  logoText:   { fontSize: '22px', fontWeight: 600, color: 'var(--color-text-primary)' },
+  otpIcon:    { fontSize: '3rem', marginBottom: '0.75rem' },
+  title:      { fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: '4px' },
+  sub:        { fontSize: '14px', color: 'var(--color-text-secondary)', textAlign: 'center', marginBottom: '1.5rem', lineHeight: 1.6 },
+  form:       { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  field:      { display: 'flex', flexDirection: 'column', gap: '6px' },
+  twoCol:     { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  label:      { fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' },
+  eyeBtn:     { position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: 0 },
+  error:      { fontSize: '12px', color: 'var(--color-danger)' },
+  btn:        { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', fontSize: '15px', fontWeight: 600, marginTop: '0.5rem', cursor: 'pointer' },
+  btnInner:   { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
+  spinner:    { display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   switchText: { textAlign: 'center', fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '1.25rem' },
 };
 

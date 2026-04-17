@@ -154,6 +154,7 @@ const Dashboard = () => {
   }, [month, year]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  
 
   const thisMonth     = stats?.thisMonth     || {};
   const comparison    = stats?.comparison    || {};

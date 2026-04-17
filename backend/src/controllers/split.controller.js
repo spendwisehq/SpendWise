@@ -394,11 +394,249 @@ const getGroupAnalytics = async (req, res, next) => {
   }
 };
 
+//─────────────────────────────────────
+// GET /api/groups/:groupId/splits/:splitId/detail
+//─────────────────────────────────────
+const getSplitDetail = async (req, res, next) => {
+  try {
+    const { groupId, splitId } = req.params;
+
+    const group = await Group.findById(groupId).lean();
+    if (!group) return res.status(404).json({ success: false, message: 'Group not found.' });
+
+    if (!group.members.some(m => m.userId?.toString() === req.user._id.toString())) {
+      return res.status(403).json({ success: false, message: 'Not a group member.' });
+    }
+
+    const split = await Split.findOne({ _id: splitId, groupId }).lean();
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+
+    return res.status(200).json({ success: true, data: { split } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//─────────────────────────────────────
+// POST /api/groups/:groupId/splits/:splitId/comments
+//─────────────────────────────────────
+const addComment = async (req, res, next) => {
+  try {
+    const { groupId, splitId } = req.params;
+    const { text } = req.body;
+
+    if (!text?.trim()) {
+      return res.status(400).json({ success: false, message: 'Comment text is required.' });
+    }
+
+    const split = await Split.findOne({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+
+    const comment = {
+      userId: req.user._id,
+      name:   req.user.name,
+      text:   text.trim(),
+      createdAt: new Date(),
+    };
+
+    split.comments = split.comments || [];
+    split.comments.push(comment);
+    await split.save();
+
+    return res.status(201).json({ success: true, message: 'Comment added.', data: { comment } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//─────────────────────────────────────
+// DELETE /api/groups/:groupId/splits/:splitId/comments/:commentId
+//─────────────────────────────────────
+const deleteComment = async (req, res, next) => {
+  try {
+    const { groupId, splitId, commentId } = req.params;
+
+    const split = await Split.findOne({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+
+    const commentIndex = (split.comments || []).findIndex(
+      c => c._id?.toString() === commentId
+    );
+    if (commentIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Comment not found.' });
+    }
+
+    if (split.comments[commentIndex].userId?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorised to delete this comment.' });
+    }
+
+    split.comments.splice(commentIndex, 1);
+    await split.save();
+
+    return res.status(200).json({ success: true, message: 'Comment deleted.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//─────────────────────────────────────
+// POST /api/groups/:groupId/splits/:splitId/bill
+//─────────────────────────────────────
+const uploadBill = async (req, res, next) => {
+  try {
+    const { groupId, splitId } = req.params;
+
+    const split = await Split.findOne({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+
+    // Requires a file-upload middleware (e.g. multer) mounted on this route
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded.' });
+    }
+
+    split.billUrl      = req.file.path || req.file.location || req.file.filename;
+    split.billOrigName = req.file.originalname;
+    await split.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Bill uploaded.',
+      data: { billUrl: split.billUrl },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+//─────────────────────────────────────
+// DELETE /api/groups/:groupId/splits/:splitId/bill
+//─────────────────────────────────────
+const deleteBill = async (req, res, next) => {
+  try {
+    const { groupId, splitId } = req.params;
+
+    const split = await Split.findOne({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+
+    split.billUrl      = undefined;
+    split.billOrigName = undefined;
+    await split.save();
+
+    return res.status(200).json({ success: true, message: 'Bill removed.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateSplit = async (req, res) => {
+  try {
+    const { groupId, splitId } = req.params;
+    const { title, totalAmount, category, splitType, paidBy, notes, shares } = req.body;
+ 
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+ 
+    // Check user is a member
+    const member = group.members.find(m => m.userId?.toString() === req.user._id?.toString());
+    if (!member) return res.status(403).json({ message: 'Not a member of this group' });
+ 
+    const split = await Split.findOne({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ message: 'Expense not found' });
+ 
+    // Update fields
+    if (title       !== undefined) split.title       = title.trim();
+    if (totalAmount !== undefined) split.totalAmount  = parseFloat(totalAmount);
+    if (category    !== undefined) split.category     = category.trim();
+    if (notes       !== undefined) split.notes        = notes;
+ 
+    // Handle paidBy change
+    if (paidBy !== undefined) {
+      const paidByMember = group.members.find(m => m.userId?.toString() === paidBy?.toString());
+      split.paidBy     = paidBy;
+      split.paidByName = paidByMember?.name || split.paidByName;
+    }
+ 
+    // Handle splitType + shares change
+    if (splitType !== undefined) {
+      split.splitType = splitType;
+      if (splitType === 'equal') {
+  const memberList = (shares && shares.length > 0) ? shares : group.members;
+  const perPerson = split.totalAmount / memberList.length;
+  split.shares = memberList.map(m => ({
+          userId:  m.userId,
+          name:    m.name,
+          amount:  parseFloat(perPerson.toFixed(2)),
+          isPaid:  m.userId?.toString() === split.paidBy?.toString(),
+        }));
+      } else if (shares && Array.isArray(shares)) {
+        split.shares = shares.map(s => ({
+          userId:     s.userId,
+          name:       s.name,
+          amount:     s.amount     ? parseFloat(s.amount)     : parseFloat((split.totalAmount / group.members.length).toFixed(2)),
+          percentage: s.percentage ? parseFloat(s.percentage) : undefined,
+          isPaid:     s.userId?.toString() === split.paidBy?.toString(),
+        }));
+      }
+    }
+ 
+    await split.save();
+ 
+    // Emit socket event if you have socket.io
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group_${groupId}`).emit('split_updated', { groupId, split });
+    }
+ 
+    return res.status(200).json({
+  success: true,
+  message: 'Expense updated successfully.',
+  data: { split },
+});
+  } catch (err) {
+    console.error('[updateSplit]', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+ 
+// ── Also add deleteSplit if missing ──────────────────────────────────────────
+const deleteSplit = async (req, res) => {
+  try {
+    const { groupId, splitId } = req.params;
+ 
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+ 
+    const member = group.members.find(m => m.userId?.toString() === req.user._id?.toString());
+    if (!member) return res.status(403).json({ message: 'Not a member' });
+ 
+    const split = await Split.findOneAndDelete({ _id: splitId, groupId });
+    if (!split) return res.status(404).json({ message: 'Expense not found' });
+ 
+    // Update group total
+    group.totalExpenses = (group.totalExpenses || 0) - split.totalAmount;
+    await group.save();
+ 
+    const io = req.app.get('io');
+    if (io) io.to(`group_${groupId}`).emit('split_deleted', { groupId, splitId });
+ 
+    res.json({ message: 'Expense deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
-  createSplit,
-  getSplits,
-  getBalances,
-  settleSplit,
-  settleAll,
-  getGroupAnalytics,
+   createSplit,
+   getSplits,
+   getSplitDetail,    // already exists
+   updateSplit,       // ← ADD
+   deleteSplit,       // ← ADD
+   getBalances,
+   settleSplit,
+   settleAll,
+   getGroupAnalytics,
+   addComment,
+   deleteComment,
+   uploadBill,
+   deleteBill,
 };

@@ -1,8 +1,10 @@
 // backend/server.js — FULL FILE
 
 require('dotenv').config();
-const app = require('./src/app');
-const { env } = require('./src/config/env');
+const http = require('http');
+const app  = require('./src/app');
+const { initSocket } = require('./src/socket');
+const { env }                    = require('./src/config/env');
 const { connectDB, disconnectDB } = require('./src/config/db');
 
 const startServer = async () => {
@@ -10,21 +12,28 @@ const startServer = async () => {
     // 1. Connect MongoDB
     await connectDB();
 
-    // 2. Start HTTP server
-    const server = app.listen(env.port, () => {
+    // 2. Wrap Express in an HTTP server (required for Socket.io)
+    const httpServer = http.createServer(app);
+
+    // 3. Attach Socket.io — stores `io` on app via app.set('io', io)
+    initSocket(app, httpServer);
+
+    // 4. Start HTTP server
+    httpServer.listen(env.port, () => {
       console.log('─────────────────────────────────────');
       console.log(`🚀 SpendWise Backend Running`);
       console.log(`📍 URL    : http://localhost:${env.port}`);
       console.log(`🌍 ENV    : ${env.nodeEnv}`);
       console.log(`🍃 DB     : MongoDB — ${env.db.name}`);
       console.log(`❤️  Health : http://localhost:${env.port}/health`);
+      console.log(`⚡ Socket : Socket.io attached`);
       console.log('─────────────────────────────────────');
     });
 
-    // 3. Graceful shutdown
+    // 5. Graceful shutdown
     const shutdown = async (signal) => {
       console.log(`\n⚠️  ${signal} received — shutting down`);
-      server.close(async () => {
+      httpServer.close(async () => {
         await disconnectDB();
         console.log('✅ SpendWise shutdown complete');
         process.exit(0);

@@ -289,13 +289,14 @@ const getFriends = async (req, res, next) => {
 
     // All relationships involving this user
     const all = await Friend.find({
-      $or: [{ requester: userId }, { recipient: userId }],
-      recipient: { $ne: userId }, // exclude placeholder self-invites
-    })
-      .populate('requester', USER_FIELDS)
-      .populate('recipient', USER_FIELDS)
-      .sort({ updatedAt: -1 })
-      .lean();
+  $or: [{ requester: userId }, { recipient: userId }],
+  invitedEmail: null,   // exclude external email-only invites
+  invitedPhone: null,   // exclude external SMS-only invites
+})
+  .populate('requester', USER_FIELDS)
+  .populate('recipient', USER_FIELDS)
+  .sort({ updatedAt: -1 })
+  .lean();
 
     const friends  = [];
     const received = []; // pending requests TO me

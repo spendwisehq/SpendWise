@@ -6,11 +6,10 @@ import authAPI from '../api/auth.api';
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user,    setUser]    = useState(null);
-  const [token,   setToken]   = useState(null);
+  const [user, setUser]       = useState(null);
+  const [token, setToken]     = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load saved session on mount
   useEffect(() => {
     const savedToken = localStorage.getItem('spendwise_token');
     const savedUser  = localStorage.getItem('spendwise_user');
@@ -28,7 +27,14 @@ export const AuthProvider = ({ children }) => {
 
   const login = useCallback(async (email, password) => {
     const response = await authAPI.login({ email, password });
-    const { user: newUser, accessToken } = response.data;
+    // Defensive: works whether backend returns { data: { user, accessToken } }
+    // or flat { user, accessToken } — handles both shapes
+    const payload     = response?.data ?? response;
+    const newUser     = payload?.user;
+    const accessToken = payload?.accessToken;
+    if (!newUser || !accessToken) {
+      throw new Error('Invalid response from server. Please try again.');
+    }
     localStorage.setItem('spendwise_token', accessToken);
     localStorage.setItem('spendwise_user', JSON.stringify(newUser));
     setToken(accessToken);
@@ -36,10 +42,14 @@ export const AuthProvider = ({ children }) => {
     return newUser;
   }, []);
 
-  const register = useCallback(async (name, email, password, currency) => {
-    // monthlyIncome removed from registration — set via monthly popup instead
-    const response = await authAPI.register({ name, email, password, currency, monthlyIncome: 0 });
-    const { user: newUser, accessToken } = response.data;
+  const register = useCallback(async (name, email, password, currency, monthlyIncome) => {
+    const response = await authAPI.register({ name, email, password, currency, monthlyIncome });
+    const payload     = response?.data ?? response;
+    const newUser     = payload?.user;
+    const accessToken = payload?.accessToken;
+    if (!newUser || !accessToken) {
+      throw new Error('Registration failed. Please try again.');
+    }
     localStorage.setItem('spendwise_token', accessToken);
     localStorage.setItem('spendwise_user', JSON.stringify(newUser));
     setToken(accessToken);
@@ -55,31 +65,17 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   }, []);
 
-  // ── KEY FIX: updateUser now always saves to localStorage and merges properly ──
   const updateUser = useCallback((updatedUser) => {
-    setUser(prev => {
-      const merged = { ...prev, ...updatedUser };
-      localStorage.setItem('spendwise_user', JSON.stringify(merged));
-      return merged;
-    });
-  }, []);
-
-  // ── Refresh user from server (for when data changes externally) ──
-  const refreshUser = useCallback(async () => {
-    try {
-      const res = await authAPI.getMe();
-      const freshUser = res.data.user;
-      localStorage.setItem('spendwise_user', JSON.stringify(freshUser));
-      setUser(freshUser);
-      return freshUser;
-    } catch { return null; }
-  }, []);
+    const merged = { ...user, ...updatedUser };
+    localStorage.setItem('spendwise_user', JSON.stringify(merged));
+    setUser(merged);
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{
       user, token, loading,
       isAuthenticated: Boolean(token && user),
-      login, register, logout, updateUser, refreshUser,
+      login, register, logout, updateUser,
     }}>
       {children}
     </AuthContext.Provider>

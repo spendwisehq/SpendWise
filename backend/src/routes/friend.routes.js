@@ -21,7 +21,7 @@ router.use(protect);
 router.get('/search', searchUsers);
 
 // ── My Friends List ───────────────────────────────────────────────────────────
-// GET  /api/friends
+// GET  /api/friends   → returns friends + pendingReceived + pendingSent in one call
 router.get('/', getFriends);
 
 // ── Invite ────────────────────────────────────────────────────────────────────
@@ -30,12 +30,16 @@ router.get('/', getFriends);
 router.post('/invite/email', inviteByEmail);
 router.post('/invite/sms',   inviteBySMS);
 
+// ── Aliases expected by the frontend ─────────────────────────────────────────
+// Frontend calls POST /friends/request  instead of /friends/invite/email
+router.post('/request', inviteByEmail);
+
 // ── Accept / Decline / Remove ─────────────────────────────────────────────────
 // PUT    /api/friends/:id/accept
 // PUT    /api/friends/:id/decline
 // DELETE /api/friends/:id
-router.put('/:id/accept',  acceptRequest);
-router.put('/:id/decline', declineRequest);
-router.delete('/:id',      removeFriend);
+router.put('/:id/accept',   acceptRequest);
+router.put('/:id/decline',  declineRequest);
+router.delete('/:id',       removeFriend);
 
 module.exports = router;
