@@ -1,6 +1,6 @@
 // backend/server.js — FULL FILE
 
-require('dotenv').config();
+require('dotenv').config();   
 const http = require('http');
 const app  = require('./src/app');
 const { initSocket } = require('./src/socket');

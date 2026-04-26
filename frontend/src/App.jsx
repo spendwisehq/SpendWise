@@ -5,7 +5,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
-import './styles/global.css';
 
 const Login       = React.lazy(() => import('./pages/Login'));
 const Register    = React.lazy(() => import('./pages/Register'));

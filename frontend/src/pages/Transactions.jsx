@@ -1,6 +1,10 @@
 // frontend/src/pages/Transactions.jsx
+// STAGE 4 CHANGE: imported VoiceInput and wired it next to the name field in TransactionModal.
+// When user speaks, the transcript is set as the name and AI categorization fires automatically.
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import api from '../api/axios'; // ✅ shared instance — has Bearer token interceptor built in
+import api from '../api/axios';
+import VoiceInput from '../components/VoiceInput';
 
 const CATEGORIES = [
   { value: 'Uncategorized',   emoji: '📦' },
@@ -42,8 +46,6 @@ const fmt      = n => new Intl.NumberFormat('en-IN', { style: 'currency', curren
 const fmtDate  = d => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
 // ─── AI Categorize Hook ───────────────────────────────────────────────────────
-// NOTE: your axios.js response interceptor returns response.data directly,
-// so api.post(...) resolves to the parsed body, not the full axios response.
 function useAICategorize() {
   const [aiState, setAiState] = useState({ category: null, confidence: 0, loading: false });
   const timer = useRef(null);
@@ -57,7 +59,6 @@ function useAICategorize() {
     setAiState(s => ({ ...s, loading: true }));
     timer.current = setTimeout(async () => {
       try {
-        // api.post resolves to response.data (your interceptor unwraps it)
         const body = await api.post('/transactions/categorize', { name: name.trim(), type });
         const { category, confidence } = body.data;
         setAiState({ category, confidence, loading: false });
@@ -102,6 +103,8 @@ function TransactionModal({ open, onClose, onSave, editData }) {
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState('');
   const [applied, setApplied] = useState(false);
+  // STAGE 4: track whether the name was set by voice so we can show a badge
+  const [voiceFilled, setVoiceFilled] = useState(false);
   const nameRef = useRef(null);
   const { category: aiCat, confidence: aiConf, loading: aiLoading, categorize, reset } = useAICategorize();
 
@@ -110,18 +113,17 @@ function TransactionModal({ open, onClose, onSave, editData }) {
     setForm(editData ? { ...EMPTY, ...editData, date: (editData.date || today).split('T')[0] } : EMPTY);
     setError('');
     setApplied(false);
+    setVoiceFilled(false);
     reset();
     setTimeout(() => nameRef.current?.focus(), 120);
   }, [open]);
 
-  // Trigger AI on name/type change (new transactions only)
   useEffect(() => {
     if (!open || editData) return;
     setApplied(false);
     categorize(form.name, form.type);
   }, [form.name, form.type, open]);
 
-  // Auto-apply AI suggestion once
   useEffect(() => {
     if (aiCat && !applied && !editData) {
       setForm(f => ({ ...f, category: aiCat }));
@@ -130,6 +132,23 @@ function TransactionModal({ open, onClose, onSave, editData }) {
   }, [aiCat]);
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  // STAGE 4: called by VoiceInput with recognised speech
+  const handleVoiceTranscript = useCallback((text) => {
+    // Try to extract amount from speech, e.g. "swiggy 250" or "rent 15000 rupees"
+    const amountMatch = text.match(/(\d[\d,]*)\s*(?:rupees?|rs\.?|₹)?/i);
+    const nameText    = text.replace(/(\d[\d,]*)\s*(?:rupees?|rs\.?|₹)?/gi, '').trim();
+
+    set('name', nameText || text);
+    if (amountMatch) {
+      const cleaned = amountMatch[1].replace(/,/g, '');
+      set('amount', cleaned);
+    }
+    setVoiceFilled(true);
+    setApplied(false);
+    // Focus amount field if it was auto-filled, else name
+    setTimeout(() => nameRef.current?.focus(), 100);
+  }, []);
 
   const submit = async () => {
     if (!form.name.trim())                        return setError('Transaction name is required.');
@@ -173,16 +192,37 @@ function TransactionModal({ open, onClose, onSave, editData }) {
         </div>
 
         <div style={S.mBody}>
-          {/* Name */}
+
+          {/* ── STAGE 4: Name row with voice button ── */}
           <div>
-            <label style={S.label}>TRANSACTION NAME</label>
-            <input
-              ref={nameRef}
-              value={form.name}
-              onChange={e => set('name', e.target.value)}
-              placeholder="e.g. Swiggy, Netflix, Salary, Amazon..."
-              style={S.input}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <label style={{ ...S.label, margin: 0 }}>TRANSACTION NAME</label>
+              {voiceFilled && (
+                <span style={S.voiceBadge}>🎙️ Voice filled</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                ref={nameRef}
+                value={form.name}
+                onChange={e => { set('name', e.target.value); setVoiceFilled(false); }}
+                placeholder="e.g. Swiggy, Netflix, Salary — or tap 🎙️"
+                style={{ ...S.input, flex: 1 }}
+              />
+              {/* VoiceInput only shown for new transactions */}
+              {!editData && (
+                <VoiceInput
+                  onTranscript={handleVoiceTranscript}
+                  disabled={saving}
+                  label="Speak transaction name (and amount)"
+                />
+              )}
+            </div>
+            {voiceFilled && (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#6366f1' }}>
+                ✦ Voice detected — review name and amount, then tap Add
+              </p>
+            )}
           </div>
 
           {/* Amount */}
@@ -291,7 +331,6 @@ export default function Transactions() {
       if (search)               p.append('search',   search);
       if (filterType !== 'all') p.append('type',     filterType);
       if (filterCat  !== 'all') p.append('category', filterCat);
-      // api interceptor returns response.data directly
       const body = await api.get(`/transactions?${p}`);
       setTxns(body.data.transactions || []);
       setTotalPages(body.data.pagination?.totalPages || 1);
@@ -534,6 +573,8 @@ const S = {
   pillDone:    { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.18rem 0.6rem', background: 'rgba(34,197,94,0.1)',  borderRadius: 20, fontSize: '0.7rem', color: '#22c55e', fontWeight: 600, border: '1px solid rgba(34,197,94,0.25)', animation: 'txFadeIn 0.3s ease-out' },
   dot:         { width: 6, height: 6, borderRadius: '50%', background: '#6366f1', animation: 'txPulse 1s ease-in-out infinite' },
   aiHint:      { margin: '0.3rem 0 0', fontSize: '0.7rem', color: '#6366f1' },
+  // STAGE 4 additions
+  voiceBadge:  { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.18rem 0.55rem', background: 'rgba(99,102,241,0.12)', borderRadius: 20, fontSize: '0.7rem', color: '#6366f1', fontWeight: 600, border: '1px solid rgba(99,102,241,0.25)' },
 };
 
 if (!document.getElementById('tx-keyframes')) {

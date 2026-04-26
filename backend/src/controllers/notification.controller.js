@@ -3,6 +3,7 @@
 const User        = require('../models/User.model');
 const Budget      = require('../models/Budget.model');
 const Transaction = require('../models/Transaction.model');
+const { fireWebhook } = require('../services/webhook.service');
 
 //─────────────────────────────────────
 // GET /api/notifications/budget-alerts
@@ -32,13 +33,15 @@ const getBudgetAlerts = async (req, res, next) => {
           pct:     Math.round(pct),
           action:  'budget',
         });
-      } else if (pct >= 80) {
-        alerts.push({
-          type:    'warning',
-          title:   '⚠️ Approaching Spending Cap',
-          message: `You've used ${Math.round(pct)}% of your ₹${budget.totalBudget.toLocaleString('en-IN')} monthly cap`,
-          pct:     Math.round(pct),
-          action:  'budget',
+      } else if (pct >= 80 && !budget.alerts.at80Percent) {
+        fireWebhook(req.user._id, 'budget.exceeded', {
+    percentUsed:  Math.round(pct),
+    totalBudget:  budget.totalBudget,
+    totalSpent:   budget.totalSpent,
+    remaining:    budget.totalBudget - budget.totalSpent,
+    month:        now.getMonth() + 1,
+    year:         now.getFullYear(),
+          
         });
       } else if (pct >= 50) {
         alerts.push({
@@ -154,20 +157,20 @@ const getAnomalyAlerts = async (req, res, next) => {
     since.setDate(since.getDate() - 7);
 
     const anomalies = await Transaction.find({
-      userId: req.user._id, isDeleted: false,
-      'aiData.isAnomaly': true, date: { $gte: since },
-    }).sort({ date: -1 }).limit(5).lean();
+  userId: req.user._id, isDeleted: false,
+  'aiData.isAnomaly': true, date: { $gte: since },
+}).sort({ date: -1 }).limit(5).lean();
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        anomalies,
-        count: anomalies.length,
-        message: anomalies.length > 0
-          ? `${anomalies.length} unusual transaction(s) detected this week.`
-          : 'No unusual transactions this week.',
-      },
-    });
+// 🔥 FIRE WEBHOOK FOR EACH ANOMALY
+anomalies.forEach(txn => {
+  fireWebhook(req.user._id, 'anomaly.detected', {
+    transactionId: txn._id,
+    amount:        txn.amount,
+    merchant:      txn.merchant || txn.description,
+    date:          txn.date,
+    aiReason:      txn.aiData?.anomalyReason || 'Statistical outlier detected',
+  });
+});
   } catch (error) { next(error); }
 };
 

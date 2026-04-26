@@ -1,4 +1,6 @@
 // backend/src/controllers/ai.controller.js
+// STAGE 4 ADDITIONS:
+//   getGoalCoachPlan  — Feature 2: AI Goal Coach (GET /api/ai/goal-coach/:goalId)
 
 const { askClaude, askClaudeJSON } = require('../services/groq.service');
 const Transaction = require('../models/Transaction.model');
@@ -25,7 +27,6 @@ const getUserFinancialData = async (userId, months = 3) => {
     User.findById(userId).lean(),
   ]);
 
-  // Summarize by category
   const categoryTotals = {};
   transactions.forEach(t => {
     if (t.type === 'expense') {
@@ -55,20 +56,16 @@ const getUserFinancialData = async (userId, months = 3) => {
 
 //─────────────────────────────────────
 // 1. POST /api/ai/categorize
-// Smart categorization of a transaction
 //─────────────────────────────────────
 const categorizeTransaction = async (req, res, next) => {
   try {
-    const { merchant, description, amount, type } = req.body;
+    const { merchant, description, amount, type, name } = req.body;
+    const label = merchant || description || name;
 
-    if (!merchant && !description) {
-      return res.status(400).json({
-        success: false,
-        message: 'merchant or description is required.',
-      });
+    if (!label) {
+      return res.status(400).json({ success: false, message: 'merchant, description, or name is required.' });
     }
 
-    // Get available categories
     const categories = await Category.find({
       isActive: true,
       $or: [{ isSystem: true }, { userId: req.user._id }],
@@ -83,7 +80,7 @@ Given transaction details, pick the BEST matching category from the provided lis
 Respond ONLY with valid JSON. No explanation.`;
 
     const userPrompt = `Transaction:
-- Merchant/Description: ${merchant || description}
+- Merchant/Description: ${label}
 - Amount: ${amount || 'unknown'}
 - Type: ${type || 'expense'}
 
@@ -98,8 +95,6 @@ Respond with JSON:
 }`;
 
     const result = await askClaudeJSON(systemPrompt, userPrompt);
-
-    // Find the matched category object
     const matched = categories.find(
       c => c.name.toLowerCase() === result.categoryName?.toLowerCase()
     );
@@ -107,12 +102,13 @@ Respond with JSON:
     return res.status(200).json({
       success: true,
       data: {
-        categoryId:   matched?._id   || null,
-        categoryName: matched?.name  || result.categoryName || 'Uncategorized',
-        categoryIcon: matched?.icon  || '📦',
-        categoryColor:matched?.color || '#888780',
-        confidence:   result.confidence,
-        reason:       result.reason,
+        categoryId:    matched?._id    || null,
+        categoryName:  matched?.name   || result.categoryName || 'Uncategorized',
+        category:      matched?.name   || result.categoryName || 'Uncategorized', // alias for frontend
+        categoryIcon:  matched?.icon   || '📦',
+        categoryColor: matched?.color  || '#888780',
+        confidence:    result.confidence,
+        reason:        result.reason,
       },
     });
   } catch (error) {
@@ -122,7 +118,6 @@ Respond with JSON:
 
 //─────────────────────────────────────
 // 2. GET /api/ai/analysis
-// Spending analysis for current month
 //─────────────────────────────────────
 const getSpendingAnalysis = async (req, res, next) => {
   try {
@@ -141,17 +136,13 @@ const getSpendingAnalysis = async (req, res, next) => {
     if (transactions.length === 0) {
       return res.status(200).json({
         success: true,
-        data: {
-          analysis: null,
-          message: 'No transactions found for this period.',
-        },
+        data: { analysis: null, message: 'No transactions found for this period.' },
       });
     }
 
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
     const totalIncome  = transactions.filter(t => t.type === 'income' ).reduce((s, t) => s + t.amount, 0);
 
-    // Group by category
     const byCategory = {};
     transactions.filter(t => t.type === 'expense').forEach(t => {
       const k = t.categoryName || 'Uncategorized';
@@ -161,8 +152,6 @@ const getSpendingAnalysis = async (req, res, next) => {
     const user = await User.findById(req.user._id).lean();
 
     const systemPrompt = `You are an expert personal finance analyst for Indian users.
-Analyze spending data and provide actionable insights.
-Be specific, friendly, and use Indian currency context.
 Respond ONLY with valid JSON.`;
 
     const userPrompt = `User: ${user.name}, Monthly Income: ₹${user.monthlyIncome || 0}
@@ -204,7 +193,6 @@ Respond with JSON:
 
 //─────────────────────────────────────
 // 3. GET /api/ai/insights
-// Personalized financial insights
 //─────────────────────────────────────
 const getInsights = async (req, res, next) => {
   try {
@@ -214,14 +202,10 @@ const getInsights = async (req, res, next) => {
     if (transactions.length < 3) {
       return res.status(200).json({
         success: true,
-        data: {
-          insights: [],
-          message: 'Add more transactions to get personalized insights.',
-        },
+        data: { insights: [], message: 'Add more transactions to get personalized insights.' },
       });
     }
 
-    // Find top merchants
     const merchantCounts = {};
     transactions.forEach(t => {
       if (t.merchant) merchantCounts[t.merchant] = (merchantCounts[t.merchant] || 0) + 1;
@@ -233,7 +217,6 @@ const getInsights = async (req, res, next) => {
 
     const systemPrompt = `You are a smart personal finance advisor for Indian users.
 Generate specific, actionable financial insights based on real spending data.
-Each insight must be practical and tailored to the user's actual behavior.
 Respond ONLY with valid JSON array.`;
 
     const userPrompt = `User: ${user.name}
@@ -274,7 +257,6 @@ Generate 5 personalized insights. Respond with JSON array:
 
 //─────────────────────────────────────
 // 4. GET /api/ai/recommendations
-// Personalized financial recommendations
 //─────────────────────────────────────
 const getRecommendations = async (req, res, next) => {
   try {
@@ -284,16 +266,12 @@ const getRecommendations = async (req, res, next) => {
     if (transactions.length < 5) {
       return res.status(200).json({
         success: true,
-        data: {
-          recommendations: [],
-          message: 'Add more transactions to get recommendations.',
-        },
+        data: { recommendations: [], message: 'Add more transactions to get recommendations.' },
       });
     }
 
     const systemPrompt = `You are a certified financial planner specializing in personal finance for young Indians.
 Give practical, realistic recommendations based on actual spending behavior.
-Be encouraging but honest. Reference specific numbers from the data.
 Respond ONLY with valid JSON array.`;
 
     const userPrompt = `User Profile:
@@ -329,12 +307,7 @@ Generate 4 specific recommendations. Respond with JSON array:
       success: true,
       data: {
         recommendations: Array.isArray(recommendations) ? recommendations : [],
-        basedOn: {
-          months:       2,
-          transactions: transactions.length,
-          totalExpense,
-          totalIncome,
-        },
+        basedOn: { months: 2, transactions: transactions.length, totalExpense, totalIncome },
       },
     });
   } catch (error) {
@@ -344,7 +317,6 @@ Generate 4 specific recommendations. Respond with JSON array:
 
 //─────────────────────────────────────
 // 5. GET /api/ai/score
-// Financial health score
 //─────────────────────────────────────
 const getFinancialScore = async (req, res, next) => {
   try {
@@ -354,10 +326,7 @@ const getFinancialScore = async (req, res, next) => {
     if (transactions.length < 5) {
       return res.status(200).json({
         success: true,
-        data: {
-          score: null,
-          message: 'Add at least 5 transactions to calculate your financial score.',
-        },
+        data: { score: null, message: 'Add at least 5 transactions to calculate your financial score.' },
       });
     }
 
@@ -365,7 +334,6 @@ const getFinancialScore = async (req, res, next) => {
     const monthlyIncome   = user?.monthlyIncome || 0;
     const avgMonthlySpend = totalExpense / 3;
 
-    // Essential vs discretionary
     const essentialCategories = ['Food & Dining', 'Groceries', 'Rent & Housing', 'Utilities', 'Health & Medical', 'Transportation'];
     const essentialSpend = Object.entries(categoryTotals)
       .filter(([k]) => essentialCategories.some(e => k.toLowerCase().includes(e.toLowerCase().split(' ')[0])))
@@ -373,8 +341,8 @@ const getFinancialScore = async (req, res, next) => {
     const discretionarySpend = totalExpense - essentialSpend;
 
     const systemPrompt = `You are a financial health scoring system for Indian users.
-Score the user's financial health from 0-100 based on key metrics.
-Be honest but constructive. Respond ONLY with valid JSON.`;
+Score the user's financial health from 0-100.
+Respond ONLY with valid JSON.`;
 
     const userPrompt = `Financial Data (last 3 months):
 - Monthly Income declared: ₹${monthlyIncome}
@@ -388,7 +356,7 @@ Be honest but constructive. Respond ONLY with valid JSON.`;
 
 Top categories: ${Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k,v])=>`${k}: ₹${v.toFixed(0)}`).join(', ')}
 
-Calculate financial score. Respond with JSON:
+Respond with JSON:
 {
   "score": 0-100,
   "grade": "A+|A|B+|B|C+|C|D|F",
@@ -407,7 +375,6 @@ Calculate financial score. Respond with JSON:
 
     const scoreData = await askClaudeJSON(systemPrompt, userPrompt, 1024);
 
-    // Cache score on user
     await User.findByIdAndUpdate(req.user._id, {
       'financialScore.score':          scoreData.score,
       'financialScore.grade':          scoreData.grade,
@@ -418,11 +385,7 @@ Calculate financial score. Respond with JSON:
       success: true,
       data: {
         ...scoreData,
-        meta: {
-          calculatedAt:   new Date(),
-          basedOnMonths:  3,
-          transactionCount: transactions.length,
-        },
+        meta: { calculatedAt: new Date(), basedOnMonths: 3, transactionCount: transactions.length },
       },
     });
   } catch (error) {
@@ -432,12 +395,10 @@ Calculate financial score. Respond with JSON:
 
 //─────────────────────────────────────
 // 6. POST /api/ai/chat
-// AI financial assistant chat
 //─────────────────────────────────────
 const chatWithAI = async (req, res, next) => {
   try {
     const { message } = req.body;
-
     if (!message?.trim()) {
       return res.status(400).json({ success: false, message: 'Message is required.' });
     }
@@ -470,7 +431,6 @@ User question: ${message}`;
 
 //─────────────────────────────────────
 // 7. POST /api/ai/categorize-batch
-// Bulk categorize multiple transactions
 //─────────────────────────────────────
 const categorizeBatch = async (req, res, next) => {
   try {
@@ -479,7 +439,6 @@ const categorizeBatch = async (req, res, next) => {
     if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
       return res.status(400).json({ success: false, message: 'transactionIds array is required.' });
     }
-
     if (transactionIds.length > 20) {
       return res.status(400).json({ success: false, message: 'Max 20 transactions per batch.' });
     }
@@ -495,7 +454,6 @@ const categorizeBatch = async (req, res, next) => {
     }).lean();
 
     const categoryList = categories.map(c => c.name).join(', ');
-
     const results = [];
 
     for (const txn of transactions) {
@@ -506,7 +464,7 @@ Respond ONLY with JSON: {"categoryName": "exact name", "confidence": 0-100}`;
         const userPrompt = `Transaction: ${txn.merchant || txn.description || 'Unknown'} — ₹${txn.amount} (${txn.type})
 Categories: ${categoryList}`;
 
-        const result = await askClaudeJSON(systemPrompt, userPrompt, 256);
+        const result  = await askClaudeJSON(systemPrompt, userPrompt, 256);
         const matched = categories.find(c => c.name.toLowerCase() === result.categoryName?.toLowerCase());
 
         if (matched) {
@@ -538,6 +496,121 @@ Categories: ${categoryList}`;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 4 — Feature 2: AI Goal Coach
+// GET /api/ai/goal-coach
+// Body (optional): { goalName, targetAmount, currentSavings, targetDate }
+// Returns a week-by-week savings plan with category-specific cuts
+// ─────────────────────────────────────────────────────────────────────────────
+const getGoalCoachPlan = async (req, res, next) => {
+  try {
+    const { goalName, targetAmount, currentSavings, targetDate } = req.query;
+
+    if (!targetAmount || isNaN(Number(targetAmount))) {
+      return res.status(400).json({
+        success: false,
+        message: 'targetAmount is required as a query param (number).',
+      });
+    }
+
+    const { transactions, categoryTotals, totalExpense, totalIncome, user, currency } =
+      await getUserFinancialData(req.user._id, 3);
+
+    if (transactions.length < 3) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          plan: null,
+          message: 'Add at least 3 transactions so the AI can build a personalized plan.',
+        },
+      });
+    }
+
+    // Calculate how many weeks remain
+    const dueDate  = targetDate ? new Date(targetDate) : null;
+    const weeksLeft = dueDate
+      ? Math.max(1, Math.round((dueDate - Date.now()) / (7 * 24 * 60 * 60 * 1000)))
+      : 12; // default 12 weeks if no target date
+
+    const gap = Number(targetAmount) - Number(currentSavings || 0);
+    const weeklyRequired = gap / weeksLeft;
+    const avgMonthlySpend = totalExpense / 3;
+
+    const systemPrompt = `You are an expert AI financial coach for Indian users.
+You create detailed, realistic, week-by-week savings plans tailored to the user's ACTUAL spending data.
+Be encouraging, specific, and always reference real numbers from the data.
+Respond ONLY with valid JSON.`;
+
+    const userPrompt = `User: ${user.name}
+Goal: ${goalName || 'Savings Goal'}
+Target Amount: ₹${Number(targetAmount).toLocaleString('en-IN')}
+Already Saved: ₹${Number(currentSavings || 0).toLocaleString('en-IN')}
+Gap to Close: ₹${gap.toLocaleString('en-IN')}
+Weeks Available: ${weeksLeft}
+Weekly Savings Needed: ₹${weeklyRequired.toFixed(0)}
+
+Monthly Income: ₹${user.monthlyIncome || totalIncome / 3 || 0}
+Avg Monthly Spend: ₹${avgMonthlySpend.toFixed(0)}
+Currency: ${currency}
+
+Current spending by category (last 3 months total):
+${Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`- ${k}: ₹${v.toFixed(0)} total (₹${(v/3).toFixed(0)}/mo)`).join('\n')}
+
+Build a week-by-week savings plan. Respond with JSON:
+{
+  "feasible": true|false,
+  "summary": "2-3 sentence overall assessment",
+  "weeklyTargetSaving": number,
+  "categoriesToCut": [
+    {
+      "category": "category name",
+      "currentMonthly": number,
+      "suggestedMonthly": number,
+      "saving": number,
+      "tip": "specific actionable tip for this category"
+    }
+  ],
+  "weeklyPlan": [
+    {
+      "week": 1,
+      "focus": "theme for this week",
+      "target": number,
+      "checkIn": "specific thing to review at end of week",
+      "tip": "one practical tip"
+    }
+  ],
+  "milestone": {
+    "halfway": "what happens at the halfway point",
+    "completion": "celebration message when goal is reached"
+  },
+  "riskFactors": ["risk1", "risk2"],
+  "alternativeTimeline": "if not feasible in given time, suggest a realistic alternative"
+}
+Limit weeklyPlan to ${Math.min(weeksLeft, 8)} weeks (summarise the rest if needed).`;
+
+    const plan = await askClaudeJSON(systemPrompt, userPrompt, 2000);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        goal: {
+          name:            goalName || 'Savings Goal',
+          targetAmount:    Number(targetAmount),
+          currentSavings:  Number(currentSavings || 0),
+          gap,
+          weeksLeft,
+          weeklyRequired,
+          targetDate:      dueDate,
+        },
+        plan,
+        generatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   categorizeTransaction,
   getSpendingAnalysis,
@@ -546,4 +619,5 @@ module.exports = {
   getFinancialScore,
   chatWithAI,
   categorizeBatch,
+  getGoalCoachPlan,   // STAGE 4
 };

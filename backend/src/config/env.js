@@ -38,6 +38,14 @@ const env = {
     refreshSecret:    process.env.JWT_REFRESH_SECRET,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
   },
+  
+  email: {
+  host: process.env.EMAIL_HOST || null,
+  port: process.env.EMAIL_PORT || 587,
+  user: process.env.EMAIL_USER || null,
+  pass: process.env.EMAIL_PASS || null,
+  from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@spendwise.app',
+},
 
   groq: {
     apiKey: process.env.GROQ_API_KEY,
@@ -82,5 +90,7 @@ const env = {
     growthMonthlyLimit:  parseInt(process.env.API_GROWTH_MONTHLY_LIMIT   || '100000', 10),
   },
 };
+
+
 
 module.exports = { validateEnv, env };

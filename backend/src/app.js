@@ -83,7 +83,9 @@ app.use('/api/ai/advanced',  require('./routes/aiAdvanced.routes'));   // Stage 
 app.use('/api/payments',     require('./routes/payment.routes'));      // Stage 8
 app.use('/api/groups',       require('./routes/group.routes'));        // Stage 9
 app.use('/api/blockchain',   require('./routes/blockchain.routes'));   // Stage 10
-app.use('/api/friends',      require('./routes/friend.routes'));       // ← ADDED
+app.use('/api/friends',      require('./routes/friend.routes'));       // ← 
+app.use('/api/household',  require('./routes/household.routes'));
+app.use('/api/challenges', require('./routes/challenge.routes'));
 // app.use('/api/platform', require('./routes/platform.routes'));       // Stage 11
 
 //─────────────────────────────────────

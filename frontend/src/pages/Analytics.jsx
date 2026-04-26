@@ -1,15 +1,17 @@
 // frontend/src/pages/Analytics.jsx
+// STAGE 5: Added Wrapped card trigger, CSV export, PDF export buttons
 
 import React, { useState, useEffect } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Legend,
+  Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Lightbulb, RefreshCw, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, Lightbulb, RefreshCw, Calendar, Download, Gift } from 'lucide-react';
 import transactionAPI from '../api/transaction.api';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import SpendingWrapped from '../components/SpendingWrapped';
 import './Analytics.css';
 
 const fmt = (v, currency = 'INR') =>
@@ -32,13 +34,15 @@ const Analytics = () => {
   const currency = user?.currency || 'INR';
   const now = new Date();
 
-  const [month,    setMonth]    = useState(now.getMonth() + 1);
-  const [year,     setYear]     = useState(now.getFullYear());
-  const [summary,  setSummary]  = useState(null);
-  const [analysis, setAnalysis] = useState(null);
-  const [insights, setInsights] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [aiLoading,setAILoading]= useState(false);
+  const [month,        setMonth]        = useState(now.getMonth() + 1);
+  const [year,         setYear]         = useState(now.getFullYear());
+  const [summary,      setSummary]      = useState(null);
+  const [analysis,     setAnalysis]     = useState(null);
+  const [insights,     setInsights]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [aiLoading,    setAILoading]    = useState(false);
+  const [showWrapped,  setShowWrapped]  = useState(false);
+  const [exportLoading, setExportLoading] = useState('');  // 'csv' | 'pdf' | ''
 
   useEffect(() => {
     const fetchData = async () => {
@@ -71,6 +75,56 @@ const Analytics = () => {
     }
   };
 
+  // ── STAGE 5: Export handlers ─────────────────────────────────────────────
+  const handleExportCSV = async () => {
+    setExportLoading('csv');
+    try {
+      // Use fetch directly so we can handle blob download
+      const token = localStorage.getItem('spendwise_token');
+      const res   = await fetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/transactions/export/csv?month=${month}&year=${year}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `SpendWise_${year}-${String(month).padStart(2,'0')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('CSV downloaded!');
+    } catch {
+      toast.error('CSV export failed');
+    } finally {
+      setExportLoading('');
+    }
+  };
+
+  const handleExportPDF = async () => {
+    setExportLoading('pdf');
+    try {
+      const token = localStorage.getItem('spendwise_token');
+      const res   = await fetch(
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/transactions/export/pdf?month=${month}&year=${year}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `SpendWise_Statement_${year}-${String(month).padStart(2,'0')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('PDF statement downloaded!');
+    } catch {
+      toast.error('PDF export failed');
+    } finally {
+      setExportLoading('');
+    }
+  };
+
   const pieData = (summary?.categoryBreakdown || []).slice(0, 7).map((b, i) => ({
     name: b._id || 'Other', value: b.total, color: COLORS[i % COLORS.length],
   }));
@@ -79,7 +133,7 @@ const Analytics = () => {
     date: d._id?.slice(5), Expense: d.expense, Income: d.income,
   }));
 
-  const s = summary?.summary || {};
+  const s      = summary?.summary || {};
   const months = [];
   for (let i = 1; i <= 12; i++) months.push(i);
   const years = [now.getFullYear() - 1, now.getFullYear()];
@@ -88,19 +142,56 @@ const Analytics = () => {
 
   return (
     <div className="analytics-page">
+
+      {/* Wrapped modal */}
+      {showWrapped && (
+        <SpendingWrapped year={year} onClose={() => setShowWrapped(false)} />
+      )}
+
       {/* Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-subtitle">Spending insights and trends</p>
         </div>
-        <div className="page-actions">
+        <div className="page-actions" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
           <select value={month} onChange={e => setMonth(parseInt(e.target.value))} className="period-select">
             {months.map(m => <option key={m} value={m}>{new Date(2026, m-1).toLocaleString('en-IN', { month: 'long' })}</option>)}
           </select>
           <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="period-select">
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
+
+          {/* STAGE 5 — Export buttons */}
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={handleExportCSV}
+            disabled={exportLoading === 'csv'}
+            title="Download CSV for tax purposes"
+          >
+            {exportLoading === 'csv' ? <RefreshCw size={14} className="spin" /> : <Download size={14} />}
+            CSV
+          </button>
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={handleExportPDF}
+            disabled={exportLoading === 'pdf'}
+            title="Download PDF statement"
+          >
+            {exportLoading === 'pdf' ? <RefreshCw size={14} className="spin" /> : <Download size={14} />}
+            PDF
+          </button>
+
+          {/* STAGE 5 — Wrapped button */}
+          <button
+            className="btn btn--wrapped"
+            onClick={() => setShowWrapped(true)}
+            title={`See your ${year} Spending Wrapped`}
+          >
+            <Gift size={14} />
+            {year} Wrapped 🎉
+          </button>
+
           <button className="btn btn--primary" onClick={fetchAIInsights} disabled={aiLoading}>
             {aiLoading ? <RefreshCw size={16} className="spin" /> : <Lightbulb size={16} />}
             AI Insights
@@ -130,7 +221,6 @@ const Analytics = () => {
 
       {/* Charts */}
       <div className="analytics-charts">
-        {/* Daily Trend */}
         <div className="chart-card chart-card--wide">
           <h3 className="chart-title">Daily Trend</h3>
           {loading ? <div className="skeleton-chart" /> : trendData.length === 0 ? (
@@ -151,7 +241,6 @@ const Analytics = () => {
           )}
         </div>
 
-        {/* Category Breakdown */}
         <div className="chart-card">
           <h3 className="chart-title">By Category</h3>
           {loading ? <div className="skeleton-chart" /> : pieData.length === 0 ? (
@@ -224,6 +313,47 @@ const Analytics = () => {
           ))}
         </div>
       )}
+
+      {/* STAGE 5 — Wrapped CTA banner (shown when no Wrapped clicked yet) */}
+      <div className="wrapped-banner" onClick={() => setShowWrapped(true)}>
+        <span style={{ fontSize: 24 }}>🎊</span>
+        <div>
+          <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>Your {year} Spending Wrapped is ready!</div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>See your biggest category, top merchant, savings rate and more</div>
+        </div>
+        <span style={{ marginLeft: 'auto', color: 'var(--color-primary)', fontWeight: 700 }}>View →</span>
+      </div>
+
+      <style>{`
+        .btn--wrapped {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 0.5rem 1rem;
+          background: linear-gradient(135deg, #6366f1, #8b5cf6);
+          color: #fff;
+          border: none;
+          border-radius: 10px;
+          cursor: pointer;
+          font-weight: 700;
+          font-size: 0.8rem;
+          transition: opacity 0.15s;
+        }
+        .btn--wrapped:hover { opacity: 0.88; }
+        .wrapped-banner {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 16px 20px;
+          background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+          border: 1px solid rgba(99,102,241,0.25);
+          border-radius: 14px;
+          cursor: pointer;
+          transition: background 0.15s;
+          margin-top: 8px;
+        }
+        .wrapped-banner:hover { background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15)); }
+      `}</style>
     </div>
   );
 };
