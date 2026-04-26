@@ -1,10 +1,15 @@
 // backend/src/controllers/transaction.controller.js
+// STAGE 5 ADDITIONS:
+//   exportCSV       — Feature 3: CSV Export
+//   exportPDF       — Feature 2: PDF Export (pdfkit)
+//   getWrappedData  — Feature 4: Annual Spending Wrapped
 
 const Transaction = require('../models/Transaction.model');
 const Category    = require('../models/Category.model');
 const Budget      = require('../models/Budget.model');
 const { invalidateUserCache } = require('../services/aiCache.service');
 const { askClaudeJSON }       = require('../services/groq.service');
+const { fireWebhook }         = require('../services/webhook.service');
 
 //─────────────────────────────────────
 // HELPER — build filter query
@@ -93,7 +98,6 @@ const syncBudget = async (userId, date, categoryId, amountDelta) => {
 
 //─────────────────────────────────────
 // POST /api/transactions/categorize
-// AI auto-categorize by name + type
 //─────────────────────────────────────
 const categorizeTransaction = async (req, res, next) => {
   try {
@@ -139,10 +143,8 @@ Rules:
 - confidence: 0.95 for well-known brands, 0.7-0.85 for partial matches, 0.5 for guesses`;
 
     const userPrompt = `Transaction name: "${name.trim()}", Type: ${type}`;
+    const result     = await askClaudeJSON(systemPrompt, userPrompt, 150);
 
-    const result = await askClaudeJSON(systemPrompt, userPrompt, 150);
-
-    // Validate the returned category is in our allowed list
     const VALID_CATEGORIES = [
       'Uncategorized','Education','Entertainment','Food & Dining','Groceries',
       'Health & Medical','Investment','Other','Personal Care','Rent & Housing',
@@ -153,33 +155,24 @@ Rules:
     const confidence = typeof result.confidence === 'number'
       ? Math.min(1, Math.max(0, result.confidence)) : 0.7;
 
-    return res.status(200).json({
-      success: true,
-      data: { category, confidence },
-    });
-
+    return res.status(200).json({ success: true, data: { category, confidence } });
   } catch (error) {
-    // Graceful fallback — don't crash if AI fails
-    return res.status(200).json({
-      success: true,
-      data: { category: 'Uncategorized', confidence: 0 },
-    });
+    return res.status(200).json({ success: true, data: { category: 'Uncategorized', confidence: 0 } });
   }
 };
 
 //─────────────────────────────────────
 // POST /api/transactions
-// Create transaction
 //─────────────────────────────────────
 const createTransaction = async (req, res, next) => {
   try {
     const {
       type, amount, currency, merchant, description,
-      categoryId, categoryName: incomingCategoryName,  // ✅ ADD THIS
+      categoryId, categoryName: incomingCategoryName,
       date, paymentMethod, tags, notes, source,
     } = req.body;
 
-    let categoryName = incomingCategoryName || 'Uncategorized';  // ✅ USE FRONTEND VALUE
+    let categoryName       = incomingCategoryName || 'Uncategorized';
     let resolvedCategoryId = categoryId || null;
 
     if (categoryId) {
@@ -188,7 +181,7 @@ const createTransaction = async (req, res, next) => {
         $or: [{ userId: req.user._id }, { isSystem: true }],
       });
       if (category) {
-        categoryName       = category.name;   // DB lookup still wins if categoryId exists
+        categoryName       = category.name;
         resolvedCategoryId = category._id;
       }
     }
@@ -208,6 +201,17 @@ const createTransaction = async (req, res, next) => {
       tags:          tags          || [],
       notes:         notes         || null,
     });
+
+    fireWebhook(req.user._id, 'transaction.created', {
+  id:          transaction._id,
+  type:        transaction.type,
+  amount:      transaction.amount,
+  currency:    transaction.currency,
+  merchant:    transaction.merchant,
+  description: transaction.description,
+  categoryName:transaction.categoryName,
+  date:        transaction.date,
+});
 
     if (type === 'expense' && resolvedCategoryId) {
       await syncBudget(req.user._id, transaction.date, resolvedCategoryId, amount);
@@ -307,7 +311,7 @@ const updateTransaction = async (req, res, next) => {
 
     const allowed = [
       'type', 'amount', 'currency', 'merchant', 'description',
-      'categoryId', 'date', 'paymentMethod', 'tags', 'notes',
+      'categoryId', 'categoryName', 'date', 'paymentMethod', 'tags', 'notes',
     ];
     const updates = {};
     allowed.forEach(field => {
@@ -522,6 +526,319 @@ const getStats = async (req, res, next) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5 — Feature 3: CSV Export
+// GET /api/transactions/export/csv?month=4&year=2026
+// Streams a downloadable CSV of all transactions in the selected period.
+// If no month/year given, exports ALL transactions.
+// ─────────────────────────────────────────────────────────────────────────────
+const exportCSV = async (req, res, next) => {
+  try {
+    const filter = buildFilter(req.user._id, req.query);
+    const transactions = await Transaction.find(filter)
+      .sort({ date: -1 })
+      .lean();
+
+    // Build filename
+    const periodLabel = req.query.month && req.query.year
+      ? `${req.query.year}-${String(req.query.month).padStart(2, '0')}`
+      : 'all';
+    const filename = `SpendWise_Transactions_${periodLabel}.csv`;
+
+    // CSV Header
+    const headers = [
+      'Date', 'Type', 'Merchant / Description', 'Category',
+      'Amount (₹)', 'Payment Method', 'Notes', 'Source',
+    ];
+
+    // CSV rows
+    const rows = transactions.map(t => {
+      const date    = new Date(t.date).toLocaleDateString('en-IN');
+      const name    = (t.merchant || t.description || '').replace(/,/g, ' ');
+      const notes   = (t.notes   || '').replace(/,/g, ' ');
+      return [
+        date,
+        t.type,
+        name,
+        t.categoryName || 'Uncategorized',
+        t.amount.toFixed(2),
+        t.paymentMethod || 'other',
+        notes,
+        t.source || 'manual',
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(csv);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5 — Feature 2: PDF Export
+// GET /api/transactions/export/pdf?month=4&year=2026
+// Generates a polished monthly statement PDF using pdfkit.
+// Install: npm install pdfkit
+// ─────────────────────────────────────────────────────────────────────────────
+const exportPDF = async (req, res, next) => {
+  try {
+    const now   = new Date();
+    const month = parseInt(req.query.month || now.getMonth() + 1);
+    const year  = parseInt(req.query.year  || now.getFullYear());
+
+    const filter = buildFilter(req.user._id, { ...req.query, month, year });
+    const transactions = await Transaction.find(filter).sort({ date: 1 }).lean();
+
+    const User = require('../models/User.model');
+    const user = await User.findById(req.user._id).lean();
+
+    // Aggregates
+    const totalIncome  = transactions.filter(t => t.type === 'income' ).reduce((s, t) => s + t.amount, 0);
+    const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+    const netSavings   = totalIncome - totalExpense;
+
+    // Category breakdown
+    const byCategory = {};
+    transactions.filter(t => t.type === 'expense').forEach(t => {
+      const k = t.categoryName || 'Uncategorized';
+      byCategory[k] = (byCategory[k] || 0) + t.amount;
+    });
+
+    const monthName = new Date(year, month - 1, 1)
+      .toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+    const filename  = `SpendWise_Statement_${year}-${String(month).padStart(2, '0')}.pdf`;
+
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    doc.pipe(res);
+
+    // ── Brand header ─────────────────────────────────────────────────────────
+    doc.rect(0, 0, doc.page.width, 80).fill('#1D9E75');
+    doc.fillColor('#FFFFFF').fontSize(22).font('Helvetica-Bold')
+       .text('SpendWise', 50, 22);
+    doc.fontSize(11).font('Helvetica')
+       .text('AI-Powered Personal Finance', 50, 48);
+    doc.fontSize(11).text(`Monthly Statement — ${monthName}`, 0, 30, { align: 'right' });
+    doc.moveDown(3);
+
+    // ── User info ─────────────────────────────────────────────────────────────
+    doc.fillColor('#1A1A1A').fontSize(13).font('Helvetica-Bold')
+       .text(`Statement for: ${user.name}`);
+    doc.fontSize(10).font('Helvetica').fillColor('#555555')
+       .text(`Email: ${user.email}`)
+       .text(`Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`);
+    doc.moveDown(1);
+
+    // ── Summary boxes ─────────────────────────────────────────────────────────
+    const drawBox = (x, y, w, h, bg, label, value, valColor) => {
+      doc.rect(x, y, w, h).fill(bg);
+      doc.fillColor('#555555').fontSize(9).font('Helvetica')
+         .text(label, x + 10, y + 10, { width: w - 20 });
+      doc.fillColor(valColor || '#1A1A1A').fontSize(16).font('Helvetica-Bold')
+         .text(`₹${Math.abs(value).toLocaleString('en-IN')}`, x + 10, y + 26, { width: w - 20 });
+    };
+
+    const boxY = doc.y + 10;
+    drawBox(50,  boxY, 150, 65, '#E8F8F2', 'Total Income',  totalIncome,  '#1D9E75');
+    drawBox(215, boxY, 150, 65, '#FEF0EE', 'Total Expense', totalExpense, '#E85D24');
+    drawBox(380, boxY, 165, 65,
+      netSavings >= 0 ? '#EEF4FE' : '#FEF0EE',
+      'Net Savings', netSavings,
+      netSavings >= 0 ? '#378ADD' : '#E85D24');
+
+    doc.y = boxY + 80;
+
+    // ── Category breakdown ────────────────────────────────────────────────────
+    if (Object.keys(byCategory).length > 0) {
+      doc.fontSize(13).font('Helvetica-Bold').fillColor('#1A1A1A')
+         .text('Spending by Category');
+      doc.moveDown(0.5);
+
+      const sorted = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
+      sorted.forEach(([cat, amt]) => {
+        const barW = Math.min(300, (amt / totalExpense) * 300);
+        doc.fontSize(10).font('Helvetica').fillColor('#333333').text(cat, 50, doc.y, { continued: true, width: 180 });
+        doc.fillColor('#1D9E75').text(`₹${amt.toLocaleString('en-IN')}`, { align: 'right', width: 495 });
+        doc.rect(50, doc.y, barW, 5).fill('#1D9E7533');
+        doc.moveDown(0.8);
+      });
+      doc.moveDown(0.5);
+    }
+
+    // ── Transactions table ────────────────────────────────────────────────────
+    doc.fontSize(13).font('Helvetica-Bold').fillColor('#1A1A1A')
+       .text('Transaction Details');
+    doc.moveDown(0.5);
+
+    // Table header
+    const tableTop = doc.y;
+    doc.rect(50, tableTop, 495, 22).fill('#F0F0F0');
+    doc.fillColor('#555555').fontSize(9).font('Helvetica-Bold');
+    doc.text('Date',      55,  tableTop + 6, { width: 65 });
+    doc.text('Merchant',  120, tableTop + 6, { width: 150 });
+    doc.text('Category',  270, tableTop + 6, { width: 100 });
+    doc.text('Type',      370, tableTop + 6, { width: 55 });
+    doc.text('Amount',    425, tableTop + 6, { width: 115, align: 'right' });
+
+    doc.y = tableTop + 26;
+
+    // Table rows
+    transactions.forEach((t, i) => {
+      if (doc.y > 720) { doc.addPage(); }
+
+      const rowY = doc.y;
+      if (i % 2 === 0) doc.rect(50, rowY - 2, 495, 18).fill('#FAFAFA');
+
+      const date    = new Date(t.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+      const name    = (t.merchant || t.description || '—').slice(0, 30);
+      const cat     = (t.categoryName || 'Uncategorized').slice(0, 18);
+      const color   = t.type === 'income' ? '#1D9E75' : t.type === 'expense' ? '#E85D24' : '#378ADD';
+      const sign    = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
+
+      doc.fillColor('#333333').fontSize(9).font('Helvetica');
+      doc.text(date,  55,  rowY, { width: 65 });
+      doc.text(name,  120, rowY, { width: 145 });
+      doc.text(cat,   270, rowY, { width: 95 });
+      doc.fillColor(color).text(t.type, 370, rowY, { width: 55 });
+      doc.text(`${sign}₹${t.amount.toLocaleString('en-IN')}`, 425, rowY, { width: 115, align: 'right' });
+
+      doc.y = rowY + 18;
+    });
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    doc.moveDown(1);
+    doc.fontSize(8).fillColor('#AAAAAA').font('Helvetica')
+       .text(
+         `SpendWise — AI-Powered Personal Finance | Generated ${new Date().toISOString()} | ${transactions.length} transactions`,
+         50, doc.y, { align: 'center', width: 495 }
+       );
+
+    doc.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5 — Feature 4: Annual Spending Wrapped data
+// GET /api/transactions/wrapped?year=2026
+// Returns aggregated annual stats for the Wrapped card.
+// ─────────────────────────────────────────────────────────────────────────────
+const getWrappedData = async (req, res, next) => {
+  try {
+    const year = parseInt(req.query.year || new Date().getFullYear());
+
+    const filter = {
+      userId:    req.user._id,
+      isDeleted: false,
+      date: {
+        $gte: new Date(year, 0, 1),
+        $lte: new Date(year, 11, 31, 23, 59, 59),
+      },
+    };
+
+    const transactions = await Transaction.find(filter).lean();
+
+    if (transactions.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: { wrapped: null, message: 'No transactions found for this year.' },
+      });
+    }
+
+    const expenses = transactions.filter(t => t.type === 'expense');
+    const incomes  = transactions.filter(t => t.type === 'income');
+
+    const totalExpense = expenses.reduce((s, t) => s + t.amount, 0);
+    const totalIncome  = incomes.reduce((s,  t) => s + t.amount, 0);
+    const savingsRate  = totalIncome > 0
+      ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100) : 0;
+
+    // Biggest category
+    const byCategory = {};
+    expenses.forEach(t => {
+      const k = t.categoryName || 'Uncategorized';
+      byCategory[k] = (byCategory[k] || 0) + t.amount;
+    });
+    const biggestCategory = Object.entries(byCategory)
+      .sort((a, b) => b[1] - a[1])[0];
+
+    // Most used merchant
+    const byMerchant = {};
+    transactions.forEach(t => {
+      if (t.merchant) byMerchant[t.merchant] = (byMerchant[t.merchant] || 0) + 1;
+    });
+    const topMerchant = Object.entries(byMerchant)
+      .sort((a, b) => b[1] - a[1])[0];
+
+    // Most expensive single transaction
+    const mostExpensive = expenses.sort((a, b) => b.amount - a.amount)[0];
+
+    // Best saving month
+    const monthlyData = {};
+    transactions.forEach(t => {
+      const m = new Date(t.date).getMonth();
+      if (!monthlyData[m]) monthlyData[m] = { income: 0, expense: 0 };
+      if (t.type === 'income')  monthlyData[m].income  += t.amount;
+      if (t.type === 'expense') monthlyData[m].expense += t.amount;
+    });
+    const bestMonth = Object.entries(monthlyData)
+      .map(([m, d]) => ({ month: parseInt(m), savings: d.income - d.expense }))
+      .sort((a, b) => b.savings - a.savings)[0];
+
+    const bestMonthName = bestMonth
+      ? new Date(year, bestMonth.month, 1).toLocaleString('en-IN', { month: 'long' })
+      : null;
+
+    // Daily average spend
+    const daysInYear   = 365;
+    const dailyAverage = Math.round(totalExpense / daysInYear);
+
+    // Transaction streaks
+    const txDates = [...new Set(
+      transactions.map(t => new Date(t.date).toDateString())
+    )].length;
+
+    const User = require('../models/User.model');
+    const user = await User.findById(req.user._id).lean();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        wrapped: {
+          year,
+          userName:       user.name,
+          totalExpense,
+          totalIncome,
+          savingsRate,
+          transactionCount: transactions.length,
+          activeDays:       txDates,
+          dailyAverage,
+          biggestCategory:  biggestCategory
+            ? { name: biggestCategory[0], amount: biggestCategory[1] } : null,
+          topMerchant:      topMerchant
+            ? { name: topMerchant[0], count: topMerchant[1] } : null,
+          mostExpensive:    mostExpensive
+            ? { merchant: mostExpensive.merchant || mostExpensive.description, amount: mostExpensive.amount, category: mostExpensive.categoryName } : null,
+          bestSavingMonth:  bestMonthName
+            ? { name: bestMonthName, savings: bestMonth.savings } : null,
+          financialScore:   user.financialScore?.score || null,
+          scoreGrade:       user.financialScore?.grade || null,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createTransaction,
   getTransactions,
@@ -530,5 +847,9 @@ module.exports = {
   deleteTransaction,
   getSummary,
   getStats,
-  categorizeTransaction,   // ← NEW
+  categorizeTransaction,
+  // STAGE 5
+  exportCSV,
+  exportPDF,
+  getWrappedData,
 };

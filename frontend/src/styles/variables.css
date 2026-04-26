@@ -25,6 +25,11 @@
   --color-text-muted: #94A3B8;
   --color-text-inverse: #FFFFFF;
 
+  --color-bg-primary:   #F8FAFC;
+  --color-bg-secondary: #FFFFFF;
+  --color-bg-tertiary:  #F1F5F9;
+  
+
   /* ───────── SPACING ───────── */
 
   --space-1: 4px;
@@ -84,9 +89,6 @@
   --header-height: 64px;
 
   /* ── Aliases used by component CSS files (light theme) ── */
-  --color-bg-primary:   #F8FAFC;
-  --color-bg-secondary: #FFFFFF;
-  --color-bg-tertiary:  #F1F5F9;
 }
 
 /* 🌙 DARK MODE (REAL PRODUCT LEVEL) */

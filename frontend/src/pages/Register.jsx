@@ -1,7 +1,11 @@
 // frontend/src/pages/Register.jsx
+// FIXED:
+//  1. OTP state persisted in sessionStorage — survives accidental refresh
+//  2. handleOTPSuccess calls authLogin() properly so AuthContext is set
+//  3. Login.jsx emailUnverified response redirects here with email pre-filled
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
@@ -41,7 +45,10 @@ const OTPInput = ({ value, onChange }) => {
 
   const handlePaste = (e) => {
     const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (pasted) { onChange(pasted.padEnd(6, '').slice(0, 6)); inputs.current[Math.min(pasted.length, 5)]?.focus(); }
+    if (pasted) {
+      onChange(pasted.padEnd(6, '').slice(0, 6));
+      inputs.current[Math.min(pasted.length, 5)]?.focus();
+    }
     e.preventDefault();
   };
 
@@ -58,12 +65,12 @@ const OTPInput = ({ value, onChange }) => {
           onPaste={handlePaste}
           autoFocus={i === 0}
           style={{
-            width: 48, height: 56,
+            width: 44, height: 52,
             textAlign: 'center',
-            fontSize: '1.4rem', fontWeight: 800,
+            fontSize: '1.3rem', fontWeight: 800,
             background: digits[i] ? 'rgba(99,102,241,0.12)' : 'var(--color-surface)',
-            border: `2px solid ${digits[i] ? 'var(--color-primary)' : 'var(--color-border-strong)'}`,
-            borderRadius: 12,
+            border: `2px solid ${digits[i] ? 'var(--color-primary)' : 'var(--color-border-strong, var(--color-border))'}`,
+            borderRadius: 10,
             color: 'var(--color-text-primary)',
             outline: 'none',
             transition: 'all 0.15s',
@@ -76,11 +83,17 @@ const OTPInput = ({ value, onChange }) => {
 };
 
 // ── OTP Verification Screen ───────────────────────────────────────────────────
-const OTPScreen = ({ email, name, onSuccess }) => {
+const OTPScreen = ({ email, name, onSuccess, onBack }) => {
   const [otp,       setOtp]       = useState('');
   const [loading,   setLoading]   = useState(false);
   const [resending, setResending] = useState(false);
   const [countdown, setCountdown] = useState(60);
+
+  // Persist OTP screen state so refresh doesn't kick to login
+  useEffect(() => {
+    sessionStorage.setItem('otp_pending', JSON.stringify({ email, name }));
+    return () => {};
+  }, [email, name]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -100,7 +113,6 @@ const OTPScreen = ({ email, name, onSuccess }) => {
       toast.error(
         err.response?.data?.message ||
         err.response?.data?.error   ||
-        err.response?.data?.msg     ||
         'Invalid OTP. Please try again.'
       );
       setOtp('');
@@ -111,14 +123,13 @@ const OTPScreen = ({ email, name, onSuccess }) => {
     setResending(true);
     try {
       await api.post('/auth/resend-otp', { email });
-      toast.success('New OTP sent to your email!');
+      toast.success('New OTP sent! Check your email 📧');
       setCountdown(60);
       setOtp('');
     } catch (err) {
       toast.error(
         err.response?.data?.message ||
         err.response?.data?.error   ||
-        err.response?.data?.msg     ||
         'Failed to resend OTP'
       );
     } finally { setResending(false); }
@@ -131,8 +142,11 @@ const OTPScreen = ({ email, name, onSuccess }) => {
           <div style={S.otpIcon}>🔐</div>
           <h2 style={S.title}>Verify your email</h2>
           <p style={S.sub}>
-            We sent a 6-digit code to<br/>
+            We sent a 6-digit code to<br />
             <strong style={{ color: 'var(--color-primary)' }}>{email}</strong>
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4 }}>
+            Check your spam/junk folder if you don't see it.
           </p>
         </div>
 
@@ -150,28 +164,44 @@ const OTPScreen = ({ email, name, onSuccess }) => {
         >
           {loading ? (
             <span style={S.btnInner}><span style={S.spinner} /> Verifying...</span>
-          ) : 'Verify & Continue'}
+          ) : 'Verify & Continue →'}
         </button>
 
         <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
           {countdown > 0 ? (
-            <p style={{ ...S.sub, fontSize: 13 }}>
+            <p style={{ ...S.sub, fontSize: 13, marginBottom: 0 }}>
               Resend code in <strong style={{ color: 'var(--color-primary)' }}>{countdown}s</strong>
             </p>
           ) : (
             <button
+              type="button"
               onClick={resend}
               disabled={resending}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontWeight: 600, fontSize: 14 }}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-primary)', fontWeight: 600, fontSize: 14,
+                padding: '4px 8px',
+              }}
             >
-              {resending ? 'Sending...' : 'Resend OTP'}
+              {resending ? 'Sending…' : '↻ Resend OTP'}
             </button>
           )}
         </div>
 
-        <p style={{ ...S.sub, fontSize: 12, marginTop: '1rem', textAlign: 'center' }}>
-          Check your spam folder if you don't see the email.
-        </p>
+        {onBack && (
+          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <button
+              type="button"
+              onClick={onBack}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-secondary)', fontSize: 13,
+              }}
+            >
+              ← Wrong email? Go back
+            </button>
+          </div>
+        )}
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
@@ -181,15 +211,44 @@ const OTPScreen = ({ email, name, onSuccess }) => {
 // ── Registration Form ─────────────────────────────────────────────────────────
 const Register = () => {
   const navigate             = useNavigate();
+  const location             = useLocation();
   const { login: authLogin } = useAuth();
 
-  const [step,            setStep]            = useState('register');
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [registeredName,  setRegisteredName]  = useState('');
+  // Support redirect from Login page when account is unverified:
+  // <Navigate to="/register" state={{ pendingEmail: email, showOTP: true }} />
+  const locationState = location.state || {};
+
+  const [step, setStep] = useState(
+    locationState.showOTP ? 'otp' : (() => {
+      // Restore OTP screen if user refreshed mid-verification
+      try {
+        const saved = sessionStorage.getItem('otp_pending');
+        if (saved) return 'otp';
+      } catch {}
+      return 'register';
+    })()
+  );
+
+  const [registeredEmail, setRegisteredEmail] = useState(() => {
+    if (locationState.pendingEmail) return locationState.pendingEmail;
+    try {
+      const saved = sessionStorage.getItem('otp_pending');
+      if (saved) return JSON.parse(saved).email || '';
+    } catch {}
+    return '';
+  });
+
+  const [registeredName, setRegisteredName] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('otp_pending');
+      if (saved) return JSON.parse(saved).name || '';
+    } catch {}
+    return '';
+  });
 
   const [form, setForm] = useState({
-    name: '', email: '', password: '',
-    confirmPassword: '', currency: 'INR', monthlyIncome: '',
+    name: '', email: locationState.pendingEmail || '',
+    password: '', confirmPassword: '', currency: 'INR', monthlyIncome: '',
   });
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
@@ -197,11 +256,12 @@ const Register = () => {
 
   const validate = () => {
     const e = {};
-    if (!form.name || form.name.length < 2)        e.name = 'Name must be at least 2 characters';
-    if (!form.email)                               e.email = 'Email is required';
+    if (!form.name || form.name.trim().length < 2) e.name = 'Name must be at least 2 characters';
+    if (!form.email)                                e.email = 'Email is required';
+    if (!/^\S+@\S+\.\S+$/.test(form.email))        e.email = 'Enter a valid email address';
     if (!form.password || form.password.length < 6) e.password = 'Password must be at least 6 characters';
-    if (!/\d/.test(form.password))                 e.password = 'Password must contain at least one number';
-    if (form.password !== form.confirmPassword)    e.confirmPassword = 'Passwords do not match';
+    if (!/\d/.test(form.password))                  e.password = 'Password must contain at least one number';
+    if (form.password !== form.confirmPassword)     e.confirmPassword = 'Passwords do not match';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -218,31 +278,25 @@ const Register = () => {
     setLoading(true);
     try {
       await api.post('/auth/register', {
-        name:          form.name,
-        email:         form.email,
+        name:          form.name.trim(),
+        email:         form.email.trim().toLowerCase(),
         password:      form.password,
         currency:      form.currency,
         monthlyIncome: form.monthlyIncome ? Number(form.monthlyIncome) : 0,
       });
-      setRegisteredEmail(form.email);
-      setRegisteredName(form.name);
+      setRegisteredEmail(form.email.trim().toLowerCase());
+      setRegisteredName(form.name.trim());
       toast.success('Account created! Check your email for the OTP 📧');
       setStep('otp');
     } catch (err) {
-      // ✅ FIX: Backend returns { success: false, message: "An account with this email already exists." }
-      // This now correctly reads res.data.message and shows the real error instead of generic fallback.
       toast.error(
         err.response?.data?.message ||
         err.response?.data?.error   ||
-        err.response?.data?.msg     ||
-        'Registration failed'
+        'Registration failed. Please try again.'
       );
     } finally { setLoading(false); }
   };
 
-  // ✅ FIX: Call authLogin to actually set the user in AuthContext after OTP verification.
-  // Previously this was just calling navigate() without setting auth state,
-  // which left the app in a logged-out state despite successful verification.
   const handleOTPSuccess = ({ user, accessToken, refreshToken }) => {
     localStorage.setItem('spendwise_user', JSON.stringify(user));
     localStorage.setItem('accessToken',  accessToken);
@@ -250,15 +304,23 @@ const Register = () => {
     navigate('/dashboard');
   };
 
+  const handleBack = () => {
+    sessionStorage.removeItem('otp_pending');
+    setStep('register');
+    setOtp?.('');
+  };
+
   const inputStyle = (field) => ({
     padding: '10px 14px',
-    border: `1px solid ${errors[field] ? 'var(--color-danger)' : 'var(--color-border-strong)'}`,
-    borderRadius: 'var(--radius-md)',
+    border: `1px solid ${errors[field] ? '#ef4444' : 'var(--color-border-strong, var(--color-border))'}`,
+    borderRadius: 8,
     fontSize: '14px',
     background: 'var(--color-surface)',
     color: 'var(--color-text-primary)',
     width: '100%',
     outline: 'none',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.15s',
   });
 
   if (step === 'otp') {
@@ -267,6 +329,7 @@ const Register = () => {
         email={registeredEmail}
         name={registeredName}
         onSuccess={handleOTPSuccess}
+        onBack={handleBack}
       />
     );
   }
@@ -283,13 +346,13 @@ const Register = () => {
         <h2 style={S.title}>Create your account</h2>
         <p style={S.sub}>Start tracking smarter today</p>
 
-        <form onSubmit={handleSubmit} style={S.form}>
+        <form onSubmit={handleSubmit} style={S.form} noValidate>
 
           <div style={S.field}>
             <label style={S.label}>Full Name</label>
             <input name="name" type="text" value={form.name}
               onChange={handleChange} placeholder="Rahul Sharma"
-              style={inputStyle('name')} />
+              style={inputStyle('name')} autoComplete="name" />
             {errors.name && <span style={S.error}>{errors.name}</span>}
           </div>
 
@@ -306,7 +369,7 @@ const Register = () => {
             <div style={{ position: 'relative' }}>
               <input name="password" type={showPass ? 'text' : 'password'}
                 value={form.password} onChange={handleChange}
-                placeholder="Min 6 chars, 1 number"
+                placeholder="Min 6 chars, include a number"
                 style={{ ...inputStyle('password'), paddingRight: '44px' }} />
               <button type="button" onClick={() => setShowPass(p => !p)} style={S.eyeBtn}>
                 {showPass ? '🙈' : '👁️'}
@@ -319,7 +382,8 @@ const Register = () => {
             <label style={S.label}>Confirm Password</label>
             <input name="confirmPassword" type="password"
               value={form.confirmPassword} onChange={handleChange}
-              placeholder="••••••••" style={inputStyle('confirmPassword')} />
+              placeholder="••••••••" style={inputStyle('confirmPassword')}
+              autoComplete="new-password" />
             {errors.confirmPassword && <span style={S.error}>{errors.confirmPassword}</span>}
           </div>
 
@@ -349,7 +413,7 @@ const Register = () => {
 
         <p style={S.switchText}>
           Already have an account?{' '}
-          <Link to="/login" style={{ color: 'var(--color-primary)', fontWeight: 500 }}>Sign in</Link>
+          <Link to="/login" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Sign in</Link>
         </p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -359,20 +423,20 @@ const Register = () => {
 
 const S = {
   page:       { minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
-  card:       { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)', padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: 'var(--shadow-md)' },
+  card:       { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 16, padding: '2.5rem', width: '100%', maxWidth: '480px', boxShadow: '0 4px 24px rgba(0,0,0,0.12)' },
   logoWrap:   { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem', justifyContent: 'center' },
-  logoIcon:   { width: 40, height: 40, background: 'var(--color-primary)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 600, fontSize: '14px' },
-  logoText:   { fontSize: '22px', fontWeight: 600, color: 'var(--color-text-primary)' },
+  logoIcon:   { width: 40, height: 40, background: 'var(--color-primary)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '14px' },
+  logoText:   { fontSize: '22px', fontWeight: 700, color: 'var(--color-text-primary)' },
   otpIcon:    { fontSize: '3rem', marginBottom: '0.75rem' },
-  title:      { fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: '4px' },
+  title:      { fontSize: '20px', fontWeight: 700, color: 'var(--color-text-primary)', textAlign: 'center', marginBottom: '4px', margin: 0 },
   sub:        { fontSize: '14px', color: 'var(--color-text-secondary)', textAlign: 'center', marginBottom: '1.5rem', lineHeight: 1.6 },
   form:       { display: 'flex', flexDirection: 'column', gap: '1rem' },
   field:      { display: 'flex', flexDirection: 'column', gap: '6px' },
   twoCol:     { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
-  label:      { fontSize: '13px', fontWeight: 500, color: 'var(--color-text-secondary)' },
+  label:      { fontSize: '13px', fontWeight: 600, color: 'var(--color-text-secondary)' },
   eyeBtn:     { position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: 0 },
-  error:      { fontSize: '12px', color: 'var(--color-danger)' },
-  btn:        { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', fontSize: '15px', fontWeight: 600, marginTop: '0.5rem', cursor: 'pointer' },
+  error:      { fontSize: '12px', color: '#ef4444' },
+  btn:        { display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '15px', fontWeight: 600, marginTop: '0.5rem', cursor: 'pointer' },
   btnInner:   { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
   spinner:    { display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
   switchText: { textAlign: 'center', fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '1.25rem' },

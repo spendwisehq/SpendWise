@@ -95,6 +95,8 @@ app.use('/api/groups',        require('./routes/group.routes'));                
 app.use('/api/blockchain',    require('./routes/blockchain.routes'));                  // Stage 10
 app.use('/api/platform',      require('./routes/platform.routes'));                    // Stage 11
 app.use('/api/notifications', require('./routes/notification.routes'));                // Stage 12
+app.use('/api/household',     require('./routes/household.routes'));
+app.use('/api/challenges',    require('./routes/challenge.routes'));
 
 //─────────────────────────────────────
 // ERROR HANDLING

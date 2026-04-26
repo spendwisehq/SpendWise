@@ -3,6 +3,8 @@
 const Split       = require('../models/Split.model');
 const Group       = require('../models/Group.model');
 const Transaction = require('../models/Transaction.model'); // ← NEW
+const upiService  = require('../services/upi.service');   // STAGE 6
+const User        = require('../models/User.model');
 
 //─────────────────────────────────────
 // HELPER — calculate balances for a group
@@ -808,6 +810,124 @@ const getOwedSummary = async (req, res, next) => {
   }
 };
 
+const generateUPILink = async (req, res, next) => {
+  try {
+    const { groupId, splitId } = req.params;
+ 
+    // Find the split
+    const split = await Split.findOne({ _id: splitId, groupId }).lean();
+    if (!split) return res.status(404).json({ success: false, message: 'Split not found.' });
+ 
+    // Find current user's share
+    const myShare = split.shares.find(s => s.userId?.toString() === req.user._id.toString());
+    if (!myShare) return res.status(404).json({ success: false, message: 'You don\'t have a share in this split.' });
+    if (myShare.isPaid)  return res.status(400).json({ success: false, message: 'Your share is already paid.' });
+ 
+    const amount = myShare.amount;
+ 
+    // Find the payer (person to send money to)
+    const payer = await User.findById(split.paidBy).lean();
+    if (!payer) return res.status(404).json({ success: false, message: 'Payer not found.' });
+ 
+    // Payer needs a UPI ID set in their profile
+    const payerUpiId = payer.upiId || payer.phone
+      ? `${(payer.phone || '').replace(/^\+91/, '')}@paytm`
+      : null;
+ 
+    if (!payerUpiId) {
+      return res.status(400).json({
+        success: false,
+        message: `${payer.name} hasn't set their UPI ID yet. Ask them to add it in Settings.`,
+        data: { payerName: payer.name, amount },
+      });
+    }
+ 
+    const note   = `SpendWise: ${split.title} (${split.paidByName})`;
+    const txnId  = `SW${splitId.toString().slice(-8).toUpperCase()}${req.user._id.toString().slice(-4).toUpperCase()}`;
+ 
+    const links = upiService.buildAppLinks({
+      upiId: payerUpiId,
+      name:  payer.name,
+      amount,
+      note,
+      txnId,
+    });
+ 
+    return res.status(200).json({
+      success: true,
+      data: {
+        amount,
+        payerName:  payer.name,
+        payerUpiId,
+        splitTitle: split.title,
+        note,
+        txnId,
+        links,
+        instructions: [
+          `Open GPay / PhonePe / Paytm`,
+          `Tap the link for your app`,
+          `Review amount ₹${amount} and confirm payment`,
+          `Come back and mark as paid in SpendWise`,
+        ],
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+ 
+//─────────────────────────────────────
+// POST /api/splits/upi-webhook
+// Called by UPI payment gateway (e.g. Razorpay, Cashfree) after payment.
+// Automatically marks the share as paid in SpendWise.
+// PUBLIC — no auth, must validate by transaction note / txnId pattern.
+//─────────────────────────────────────
+const upiWebhook = async (req, res, next) => {
+  // Respond immediately
+  res.status(200).json({ received: true });
+ 
+  try {
+    const { success, txnId, amount } = upiService.parseUPIWebhook(req.body);
+ 
+    if (!success || !txnId) return;
+ 
+    // txnId format: SW{splitId_last8}{userId_last4}
+    // e.g. SW1A2B3C4D5E6F
+    const swMatch = txnId.match(/^SW([A-F0-9]{8})([A-F0-9]{4})$/i);
+    if (!swMatch) return;
+ 
+    // We can't perfectly reverse the IDs from just the suffix,
+    // so scan recent unsettled splits for a share matching the amount
+    const recentSplits = await Split.find({
+      isSettled: false,
+      'shares.isPaid': false,
+      'shares.amount': amount,
+    }).limit(20).lean();
+ 
+    for (const split of recentSplits) {
+      const share = split.shares.find(s => !s.isPaid && Math.abs(s.amount - amount) < 0.5);
+      if (share) {
+        const fullSplit = await Split.findById(split._id);
+        const targetShare = fullSplit.shares.id(share._id);
+        if (targetShare && !targetShare.isPaid) {
+          targetShare.isPaid = true;
+          targetShare.paidAt = new Date();
+          targetShare.upiTxnId = txnId;
+ 
+          const allPaid = fullSplit.shares.every(s => s.isPaid || s.userId?.toString() === fullSplit.paidBy?.toString());
+          if (allPaid) { fullSplit.isSettled = true; fullSplit.settledAt = new Date(); }
+ 
+          await fullSplit.save();
+          console.log(`[UPIWebhook] Auto-settled share ₹${amount} in split ${split._id}`);
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[upiWebhook]', err.message);
+  }
+};
+
 module.exports = {
   createSplit,
   getSplits,
@@ -823,4 +943,6 @@ module.exports = {
   uploadBill,
   deleteBill,
   getOwedSummary,   // ← NEW
+  generateUPILink,
+  upiWebhook,
 };

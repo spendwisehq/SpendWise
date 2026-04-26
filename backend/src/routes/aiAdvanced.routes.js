@@ -1,4 +1,5 @@
 // backend/src/routes/aiAdvanced.routes.js
+// STAGE 4: added /tax-deductions and /negotiate routes
 
 const express = require('express');
 const router  = express.Router();
@@ -10,6 +11,8 @@ const {
   spendingForecast,
   scoreHistory,
   listSubscriptions,
+  getTaxDeductions,             // STAGE 4
+  getBillNegotiationSuggestions, // STAGE 4
 } = require('../controllers/aiAdvanced.controller');
 
 const { protect } = require('../middleware/auth.middleware');
@@ -25,5 +28,7 @@ router.get('/subscriptions',        detectSubscriptions);
 router.get('/subscriptions/list',   listSubscriptions);
 router.get('/forecast',             forecastValidator,   spendingForecast);
 router.get('/score-history',        scoreHistory);
+router.get('/tax-deductions',       getTaxDeductions);
+router.get('/negotiate',            getBillNegotiationSuggestions);
 
 module.exports = router;
