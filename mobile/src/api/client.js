@@ -5,11 +5,8 @@ import axios from 'axios';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../utils/tokenStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// In dev, use your machine's LAN IP (not localhost — the device can't reach it).
-// Find it with: ifconfig | grep "inet " | grep -v 127.0.0.1
-const BASE_URL = __DEV__
-  ? 'http://192.168.1.33:5000/api'   // ← Update this to your LAN IP - I have done it
-  : 'https://api.spendwise.app/api';
+// Set EXPO_PUBLIC_API_URL in mobile/.env — e.g. http://192.168.1.X:5000/api
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.33:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,

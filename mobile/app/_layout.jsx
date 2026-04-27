@@ -2,7 +2,8 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '../src/lib/queryClient';
 import Toast from 'react-native-toast-message';
 import * as SplashScreen from 'expo-splash-screen';
 import { ThemeProvider } from '../src/context/ThemeContext';
@@ -11,16 +12,6 @@ import { toastConfig } from '../src/components/ToastConfig';
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000,     // 5 minutes (matches web)
-      gcTime: 30 * 60 * 1000,        // 30 minutes
-      retry: 2,
-      refetchOnWindowFocus: false,    // not applicable on mobile
-    },
-  },
-});
 
 export default function RootLayout() {
   useEffect(() => {
@@ -37,6 +28,9 @@ export default function RootLayout() {
             <Stack.Screen name="index" />
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="groups" options={{ presentation: 'card' }} />
+            <Stack.Screen name="goals" options={{ presentation: 'card' }} />
+            <Stack.Screen name="settings" options={{ presentation: 'card' }} />
           </Stack>
           <Toast config={toastConfig} position="top" topOffset={60} />
           <StatusBar style="auto" />

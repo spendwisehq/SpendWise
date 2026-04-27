@@ -1,78 +1,45 @@
-// mobile/app/(tabs)/_layout.jsx — Bottom tab navigation
+// Tabs layout with custom notched bottom nav.
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../src/context/ThemeContext';
+import { palette } from '../../src/theme/colors';
+import BottomNav from '../../src/components/ui/BottomNav';
+
+function CustomTabBar({ state, navigation }) {
+  const active = state.routes[state.index]?.name;
+
+  const onSelect = (key) => {
+    if (key === 'add') {
+      navigation.navigate('add');
+      return;
+    }
+    navigation.navigate(key);
+  };
+
+  return <BottomNav active={active} onSelect={onSelect}/>;
+}
 
 export default function TabLayout() {
-  const { colors } = useTheme();
-
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 4,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
-          ),
+    <View style={styles.bg}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: 'none' },
+          sceneStyle: { backgroundColor: palette.bg },
         }}
-      />
-      <Tabs.Screen
-        name="transactions"
-        options={{
-          title: 'Transactions',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="add"
-        options={{
-          title: 'Add',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={32} color={colors.primary} />
-          ),
-          tabBarLabel: () => null,
-        }}
-      />
-      <Tabs.Screen
-        name="analytics"
-        options={{
-          title: 'Analytics',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: 'More',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="menu-outline" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+        tabBar={(props) => <CustomTabBar {...props}/>}
+      >
+        <Tabs.Screen name="dashboard"/>
+        <Tabs.Screen name="transactions"/>
+        <Tabs.Screen name="add"/>
+        <Tabs.Screen name="analytics"/>
+        <Tabs.Screen name="ai"/>
+      </Tabs>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: palette.bg },
+});

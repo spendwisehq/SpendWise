@@ -5,14 +5,16 @@ import transactionAPI from '../api/transaction.api';
 export function useStats() {
   return useQuery({
     queryKey: ['dashboard-stats'],
-    queryFn: () => transactionAPI.getStats().then(r => r.data),
+    // backend: { data: { thisMonth: {totalIncome, totalExpense, netSavings, ...}, comparison, recentTransactions } }
+    queryFn: () => transactionAPI.getStats().then(r => r.data?.thisMonth ?? r.data),
   });
 }
 
 export function useTransactionSummary(month, year) {
   return useQuery({
     queryKey: ['transaction-summary', month, year],
-    queryFn: () => transactionAPI.getSummary({ month, year }).then(r => r.data),
+    // backend: { data: { summary: {totalIncome, totalExpense, netSavings, ...} } }
+    queryFn: () => transactionAPI.getSummary({ month, year }).then(r => r.data?.summary ?? r.data),
   });
 }
 

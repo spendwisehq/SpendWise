@@ -1,121 +1,110 @@
-// mobile/app/(auth)/login.jsx
+// Login screen — "Fiscal Architect" dark UI.
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, Pressable, StyleSheet,
-  KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
+  Platform, Pressable, ActivityIndicator,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '../../src/context/AuthContext';
-import { useTheme } from '../../src/context/ThemeContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { spacing, radius, fontSize, fontWeight } from '../../src/theme/spacing';
+import { palette } from '../../src/theme/colors';
+import { fonts, fontSize, fontWeight, text } from '../../src/theme/typography';
+import AuthGlows from '../../src/components/ui/AuthGlows';
+import AuthHeader from '../../src/components/ui/AuthHeader';
+import Field from '../../src/components/ui/Field';
+import PrimaryButton from '../../src/components/ui/PrimaryButton';
+import { Icon } from '../../src/components/ui/Icon';
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const { colors } = useTheme();
   const router = useRouter();
+  const [email, setEmail]   = useState('');
+  const [pw, setPw]         = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading]   = useState(false);
-
-  const handleLogin = async () => {
-    if (!email.trim() || !password) {
+  const submit = async () => {
+    if (!email.trim() || !pw) {
       Toast.show({ type: 'error', text1: 'Please fill in all fields' });
       return;
     }
-
     setLoading(true);
     try {
-      await login(email.trim().toLowerCase(), password);
+      await login(email.trim().toLowerCase(), pw);
       router.replace('/(tabs)/dashboard');
     } catch (err) {
       const msg = err.message || 'Login failed';
-      if (msg.includes('verify your email')) {
-        Toast.show({ type: 'info', text1: 'Please verify your email first' });
-      } else {
-        Toast.show({ type: 'error', text1: msg });
-      }
+      Toast.show({
+        type: msg.includes('verify your email') ? 'info' : 'error',
+        text1: msg,
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
+    <SafeAreaView style={styles.safe}>
+      <AuthGlows/>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.flex}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={[styles.logo, { backgroundColor: colors.primary }]}>
-              <Text style={styles.logoText}>S</Text>
-            </View>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>Welcome back</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Sign in to your SpendWise account
-            </Text>
-          </View>
+        style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <AuthHeader tagline="Elevate your financial architecture"/>
 
-          {/* Form */}
           <View style={styles.form}>
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.textPrimary }]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                textContentType="emailAddress"
-                autoComplete="email"
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.textPrimary }]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter your password"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-                textContentType="password"
-                autoComplete="password"
-              />
-            </View>
+            <Field
+              label="EMAIL ADDRESS"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="name@company.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              leading={<Icon.Mail size={18} color={palette.textMuted}/>}
+            />
+            <Field
+              label="PASSWORD"
+              value={pw}
+              onChangeText={setPw}
+              placeholder="••••••••"
+              secureTextEntry={!showPw}
+              textContentType="password"
+              autoComplete="password"
+              leading={<Icon.Lock size={18} color={palette.textMuted}/>}
+              trailing={
+                <Pressable onPress={() => setShowPw(s => !s)}
+                  style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
+                  {showPw
+                    ? <Icon.EyeOff size={18} color={palette.textMuted}/>
+                    : <Icon.Eye size={18} color={palette.textMuted}/>}
+                </Pressable>
+              }
+            />
 
             <Pressable
-              style={[styles.button, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}
-              onPress={handleLogin}
-              disabled={loading}
+              style={{ alignSelf: 'flex-end' }}
+              onPress={() => Toast.show({ type: 'info', text1: 'Password reset coming soon' })}
             >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.buttonText}>Sign In</Text>
-              )}
+              <Text style={styles.forgot}>Forgot Password?</Text>
             </Pressable>
           </View>
 
-          {/* Footer */}
+          <View style={{ marginTop: 22 }}>
+            <PrimaryButton full onPress={submit} disabled={loading}>
+              {loading ? <ActivityIndicator color={palette.primaryInk}/> : 'Sign In'}
+            </PrimaryButton>
+          </View>
+
+          <View style={{ flex: 1 }}/>
+
           <View style={styles.footer}>
-            <Text style={[styles.footerText, { color: colors.textMuted }]}>
-              Don't have an account?{' '}
-            </Text>
+            <Text style={styles.footerText}>Don't have an account? </Text>
             <Link href="/(auth)/register" asChild>
               <Pressable>
-                <Text style={[styles.link, { color: colors.primary }]}>Create one</Text>
+                <Text style={styles.link}>Sign Up</Text>
               </Pressable>
             </Link>
           </View>
@@ -126,78 +115,41 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  flex: { flex: 1 },
+  safe: { flex: 1, backgroundColor: palette.bg },
   scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing['3xl'],
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: spacing['3xl'],
-  },
-  logo: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  logoText: {
-    color: '#FFFFFF',
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.bold,
-  },
-  title: {
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.bold,
-    marginBottom: spacing.xs,
-  },
-  subtitle: {
-    fontSize: fontSize.base,
+    paddingHorizontal: 28,
+    paddingVertical: 32,
   },
   form: {
-    gap: spacing.lg,
+    marginTop: 40,
+    gap: 16,
   },
-  field: {
-    gap: spacing.sm,
+  forgot: {
+    color: palette.primary,
+    fontFamily: fonts.body,
+    fontWeight: fontWeight.bold,
+    fontSize: 13,
+    marginTop: 4,
   },
-  label: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-  },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    fontSize: fontSize.base,
-  },
-  button: {
-    height: 48,
-    borderRadius: radius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: fontSize.base,
-    fontWeight: fontWeight.semibold,
+  socialRow: {
+    flexDirection: 'row',
+    gap: 12,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: spacing['3xl'],
+    marginTop: 32,
   },
   footerText: {
-    fontSize: fontSize.sm,
+    color: palette.textMuted,
+    fontFamily: fonts.body,
+    fontSize: 13,
   },
   link: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
+    color: palette.primary,
+    fontFamily: fonts.body,
+    fontWeight: fontWeight.bold,
+    fontSize: 13,
   },
 });

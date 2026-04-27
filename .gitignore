@@ -38,3 +38,8 @@ mobile/android/
 # Skills
 .agents/
 .claude/
+CLAUDE.md
+DOCUMENTATION.md
+PROMPTS.txt
+IMPROVEMENT_ROADMAP.md
+graphify-out/
