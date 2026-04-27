@@ -1,66 +1,79 @@
-// mobile/app/(auth)/register.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+// Signup + OTP — "Fiscal Architect" dark UI.
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, Pressable, StyleSheet,
-  KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, KeyboardAvoidingView,
+  Platform, Pressable, ActivityIndicator,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '../../src/context/AuthContext';
-import { useTheme } from '../../src/context/ThemeContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import authAPI from '../../src/api/auth.api';
+import { palette } from '../../src/theme/colors';
+import { fonts, fontSize, fontWeight, text } from '../../src/theme/typography';
+import AuthGlows from '../../src/components/ui/AuthGlows';
+import Field from '../../src/components/ui/Field';
+import PrimaryButton from '../../src/components/ui/PrimaryButton';
+import { Icon } from '../../src/components/ui/Icon';
 import OTPInput from '../../src/components/OTPInput';
-import { spacing, radius, fontSize, fontWeight } from '../../src/theme/spacing';
 
-const CURRENCIES = [
-  { value: 'INR', label: 'INR (\u20b9)' },
-  { value: 'USD', label: 'USD ($)' },
-  { value: 'EUR', label: 'EUR (\u20ac)' },
-  { value: 'GBP', label: 'GBP (\u00a3)' },
+const STRENGTH = [
+  { label: 'ENTER A PASSWORD', color: 'rgba(255,255,255,0.08)' },
+  { label: 'WEAK',             color: '#ff8b6b' },
+  { label: 'FAIR',             color: '#ffb684' },
+  { label: 'STRONG',           color: '#facc15' },
+  { label: 'ARCHITECTED',      color: '#68dbae' },
 ];
 
 export default function RegisterScreen() {
   const { register, verifyOTP } = useAuth();
-  const { colors } = useTheme();
   const router = useRouter();
 
-  const [step, setStep] = useState(1);
-
-  // Step 1 fields
+  const [step, setStep]         = useState(1);
   const [name, setName]         = useState('');
   const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [currency, setCurrency] = useState('INR');
+  const [pw, setPw]             = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [agree, setAgree]       = useState(false);
   const [loading, setLoading]   = useState(false);
 
-  // Step 2 fields
-  const [otp, setOtp]             = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [resendTimer, setResendTimer] = useState(0);
+  const [otp, setOtp]                   = useState('');
+  const [verifying, setVerifying]       = useState(false);
+  const [resendTimer, setResendTimer]   = useState(0);
 
-  // Resend countdown
+  const strength = useMemo(() => {
+    let s = 0;
+    if (pw.length >= 8) s++;
+    if (/[A-Z]/.test(pw)) s++;
+    if (/\d/.test(pw)) s++;
+    if (/[^A-Za-z0-9]/.test(pw)) s++;
+    return s;
+  }, [pw]);
+  const meta = STRENGTH[strength];
+  const canSubmit = name && email && pw.length >= 8 && agree;
+
   useEffect(() => {
     if (resendTimer <= 0) return;
-    const interval = setInterval(() => setResendTimer(t => t - 1), 1000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setResendTimer(v => v - 1), 1000);
+    return () => clearInterval(t);
   }, [resendTimer]);
 
-  const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password) {
-      Toast.show({ type: 'error', text1: 'Please fill in all fields' });
+  const submit = async () => {
+    if (!canSubmit) {
+      Toast.show({ type: 'error', text1: 'Complete all fields and accept terms' });
       return;
     }
-    if (password.length < 6) {
-      Toast.show({ type: 'error', text1: 'Password must be at least 6 characters' });
-      return;
-    }
-
     setLoading(true);
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, currency);
+      const response = await register(name.trim(), email.trim().toLowerCase(), pw, 'INR');
       setStep(2);
       setResendTimer(60);
-      Toast.show({ type: 'success', text1: 'Verification code sent to your email' });
+      if (response?.devMode && response?.otp) {
+        Toast.show({ type: 'info', text1: `Dev mode — OTP: ${response.otp}`, visibilityTime: 10000 });
+      } else {
+        Toast.show({ type: 'success', text1: 'Verification code sent' });
+      }
     } catch (err) {
       Toast.show({ type: 'error', text1: err.message || 'Registration failed' });
     } finally {
@@ -68,12 +81,11 @@ export default function RegisterScreen() {
     }
   };
 
-  const handleVerify = async () => {
+  const verify = async () => {
     if (otp.length !== 6) {
-      Toast.show({ type: 'error', text1: 'Please enter the 6-digit code' });
+      Toast.show({ type: 'error', text1: 'Enter the 6-digit code' });
       return;
     }
-
     setVerifying(true);
     try {
       await verifyOTP(email.trim().toLowerCase(), otp);
@@ -87,171 +99,135 @@ export default function RegisterScreen() {
     }
   };
 
-  const handleResend = async () => {
+  const resend = async () => {
     if (resendTimer > 0) return;
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, currency);
+      const response = await authAPI.resendOTP({ email: email.trim().toLowerCase() });
       setResendTimer(60);
-      Toast.show({ type: 'success', text1: 'New code sent!' });
+      if (response?.devMode && response?.otp) {
+        Toast.show({ type: 'info', text1: `Dev mode — OTP: ${response.otp}`, visibilityTime: 10000 });
+      } else {
+        Toast.show({ type: 'success', text1: 'New code sent' });
+      }
     } catch (err) {
       Toast.show({ type: 'error', text1: err.message || 'Failed to resend' });
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.flex}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={[styles.logo, { backgroundColor: colors.primary }]}>
-              <Text style={styles.logoText}>S</Text>
-            </View>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>
-              {step === 1 ? 'Create account' : 'Verify email'}
-            </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              {step === 1
-                ? 'Start tracking your expenses with SpendWise'
-                : `Enter the code sent to ${email}`}
-            </Text>
-          </View>
+    <SafeAreaView style={styles.safe}>
+      <AuthGlows/>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {/* Back */}
+          <Pressable
+            onPress={() => step === 2 ? setStep(1) : router.back()}
+            style={styles.backBtn}>
+            <Icon.ChevLeft size={18} color={palette.text}/>
+          </Pressable>
 
           {step === 1 ? (
-            /* Step 1: Registration Form */
-            <View style={styles.form}>
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>Full Name</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.textPrimary }]}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="John Doe"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="words"
-                  textContentType="name"
-                  autoComplete="name"
-                />
+            <>
+              <View style={{ marginTop: 10 }}>
+                <Text style={[text.eyebrow, { color: palette.primary, letterSpacing: 2.2 }]}>
+                  BEGIN THE BLUEPRINT
+                </Text>
+                <Text style={styles.title}>{`Create your\nfinancial architecture.`}</Text>
+                <Text style={styles.sub}>Two minutes to set up. Lifetime of precision.</Text>
               </View>
 
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.textPrimary }]}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@example.com"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                />
-              </View>
-
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.textPrimary }]}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Min. 6 characters"
-                  placeholderTextColor={colors.textMuted}
-                  secureTextEntry
-                  textContentType="newPassword"
-                  autoComplete="new-password"
-                />
-              </View>
-
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>Currency</Text>
-                <View style={styles.currencyRow}>
-                  {CURRENCIES.map(c => (
-                    <Pressable
-                      key={c.value}
-                      onPress={() => setCurrency(c.value)}
-                      style={[
-                        styles.currencyChip,
-                        {
-                          backgroundColor: currency === c.value ? colors.primary : colors.surface,
-                          borderColor: currency === c.value ? colors.primary : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text style={{
-                        color: currency === c.value ? '#FFFFFF' : colors.textSecondary,
-                        fontSize: fontSize.sm,
-                        fontWeight: fontWeight.medium,
-                      }}>
-                        {c.label}
-                      </Text>
-                    </Pressable>
-                  ))}
+              <View style={{ marginTop: 28, gap: 14 }}>
+                <Field label="FULL NAME" value={name} onChangeText={setName}
+                       placeholder="Your Name" autoComplete="name"
+                       leading={<Icon.Users size={18} color={palette.textMuted}/>}/>
+                <Field label="EMAIL ADDRESS" value={email} onChangeText={setEmail}
+                       placeholder="name@example.com" keyboardType="email-address"
+                       autoCapitalize="none" autoComplete="email" textContentType="emailAddress"
+                       leading={<Icon.Mail size={18} color={palette.textMuted}/>}/>
+                <View>
+                  <Field label="PASSWORD" value={pw} onChangeText={setPw}
+                         placeholder="Min. 8 characters" secureTextEntry={!showPw}
+                         autoComplete="new-password" textContentType="newPassword"
+                         leading={<Icon.Lock size={18} color={palette.textMuted}/>}
+                         trailing={
+                           <Pressable onPress={() => setShowPw(s => !s)}
+                             style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
+                             {showPw
+                               ? <Icon.EyeOff size={18} color={palette.textMuted}/>
+                               : <Icon.Eye size={18} color={palette.textMuted}/>}
+                           </Pressable>
+                         }/>
+                  <View style={styles.strengthRow}>
+                    {[0,1,2,3].map(i => (
+                      <View key={i} style={[
+                        styles.strengthBar,
+                        { backgroundColor: i < strength ? meta.color : 'rgba(255,255,255,0.06)' },
+                      ]}/>
+                    ))}
+                    <Text style={[styles.strengthLabel, {
+                      color: strength ? meta.color : palette.textDim,
+                    }]}>{meta.label}</Text>
+                  </View>
                 </View>
               </View>
 
-              <Pressable
-                style={[styles.button, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]}
-                onPress={handleRegister}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.buttonText}>Create Account</Text>
-                )}
+              {/* Terms */}
+              <Pressable onPress={() => setAgree(a => !a)} style={styles.terms}>
+                <View style={[styles.checkbox, agree ? null : styles.checkboxOff]}>
+                  {agree ? (
+                    <LinearGradient colors={['#68dbae', '#26a37a']}
+                      start={{x:0,y:0}} end={{x:1,y:1}}
+                      style={[StyleSheet.absoluteFill, { borderRadius: 6 }]}/>
+                  ) : null}
+                  {agree ? <Icon.Check size={14} stroke={3} color={palette.primaryInk}/> : null}
+                </View>
+                <Text style={styles.termsText}>
+                  I agree to SpendWise's <Text style={styles.termsLink}>Terms of Service</Text>{' '}
+                  and acknowledge the <Text style={styles.termsLink}>Privacy Policy</Text>.
+                </Text>
               </Pressable>
-            </View>
+
+              <View style={{ marginTop: 20 }}>
+                <PrimaryButton full onPress={submit} disabled={!canSubmit || loading}>
+                  {loading ? <ActivityIndicator color={palette.primaryInk}/> : 'Create Account'}
+                </PrimaryButton>
+              </View>
+
+              <View style={{ flex: 1 }}/>
+
+              <View style={styles.footer}>
+                <Text style={styles.footerText}>Already have an account? </Text>
+                <Link href="/(auth)/login" asChild>
+                  <Pressable>
+                    <Text style={styles.link}>Sign In</Text>
+                  </Pressable>
+                </Link>
+              </View>
+            </>
           ) : (
-            /* Step 2: OTP Verification */
-            <View style={styles.form}>
-              <OTPInput length={6} value={otp} onChange={setOtp} />
-
-              <Pressable
-                style={[styles.button, { backgroundColor: colors.primary, opacity: verifying ? 0.7 : 1 }]}
-                onPress={handleVerify}
-                disabled={verifying || otp.length !== 6}
-              >
-                {verifying ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.buttonText}>Verify</Text>
-                )}
-              </Pressable>
-
-              <Pressable onPress={handleResend} disabled={resendTimer > 0}>
-                <Text style={[styles.resendText, { color: resendTimer > 0 ? colors.textMuted : colors.primary }]}>
-                  {resendTimer > 0 ? `Resend code in ${resendTimer}s` : 'Resend code'}
+            <>
+              <View style={{ marginTop: 20 }}>
+                <Text style={[text.eyebrow, { color: palette.primary, letterSpacing: 2.2 }]}>
+                  VERIFY EMAIL
                 </Text>
-              </Pressable>
+                <Text style={[styles.title, { fontSize: 30 }]}>{`Six digits.\nThen you're in.`}</Text>
+                <Text style={styles.sub}>{`Code sent to ${email}.`}</Text>
+              </View>
 
-              <Pressable onPress={() => { setStep(1); setOtp(''); }}>
-                <Text style={[styles.backText, { color: colors.textSecondary }]}>
-                  Back to registration
-                </Text>
-              </Pressable>
-            </View>
-          )}
-
-          {/* Footer (step 1 only) */}
-          {step === 1 && (
-            <View style={styles.footer}>
-              <Text style={[styles.footerText, { color: colors.textMuted }]}>
-                Already have an account?{' '}
-              </Text>
-              <Link href="/(auth)/login" asChild>
-                <Pressable>
-                  <Text style={[styles.link, { color: colors.primary }]}>Sign in</Text>
+              <View style={{ marginTop: 32, gap: 18 }}>
+                <OTPInput length={6} value={otp} onChange={setOtp}/>
+                <PrimaryButton full onPress={verify} disabled={verifying || otp.length !== 6}>
+                  {verifying ? <ActivityIndicator color={palette.primaryInk}/> : 'Verify'}
+                </PrimaryButton>
+                <Pressable onPress={resend} disabled={resendTimer > 0}>
+                  <Text style={[styles.resend, {
+                    color: resendTimer > 0 ? palette.textDim : palette.primary,
+                  }]}>
+                    {resendTimer > 0 ? `Resend code in ${resendTimer}s` : 'Resend code'}
+                  </Text>
                 </Pressable>
-              </Link>
-            </View>
+              </View>
+            </>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -260,98 +236,101 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  flex: { flex: 1 },
+  safe: { flex: 1, backgroundColor: palette.bg },
   scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing['3xl'],
+    paddingHorizontal: 28,
+    paddingVertical: 24,
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: spacing['3xl'],
-  },
-  logo: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  logoText: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '700',
+  backBtn: {
+    width: 40, height: 40, borderRadius: 99,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center', justifyContent: 'center',
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 4,
+    color: palette.text,
+    fontFamily: fonts.display,
+    fontWeight: fontWeight.heavy,
+    fontSize: 34,
+    lineHeight: 38,
+    letterSpacing: -1.4,
+    marginTop: 10,
   },
-  subtitle: {
-    fontSize: 15,
-    textAlign: 'center',
+  sub: {
+    color: palette.textMuted,
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 10,
   },
-  form: {
-    gap: spacing.lg,
-  },
-  field: {
-    gap: spacing.sm,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  input: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: spacing.lg,
-    fontSize: 15,
-  },
-  currencyRow: {
+  strengthRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  currencyChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-  },
-  button: {
-    height: 48,
-    borderRadius: 10,
-    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: spacing.sm,
+    gap: 6,
+    marginTop: 10,
   },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
+  strengthBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: 99,
   },
-  resendText: {
-    textAlign: 'center',
-    fontSize: 14,
-    fontWeight: '500',
+  strengthLabel: {
+    fontFamily: fonts.body,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    letterSpacing: 1.2,
+    minWidth: 80,
+    textAlign: 'right',
   },
-  backText: {
-    textAlign: 'center',
-    fontSize: 14,
+  terms: {
+    marginTop: 18,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 6,
+    marginTop: 1,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  checkboxOff: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  termsText: {
+    flex: 1,
+    color: palette.textMuted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  termsLink: {
+    color: palette.primary,
+    fontWeight: fontWeight.semibold,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: 12,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: spacing['3xl'],
+    marginTop: 22,
   },
-  footerText: {
-    fontSize: 13,
-  },
+  footerText: { color: palette.textMuted, fontSize: 13 },
   link: {
+    color: palette.primary,
+    fontFamily: fonts.body,
+    fontWeight: fontWeight.bold,
     fontSize: 13,
-    fontWeight: '600',
+  },
+  resend: {
+    textAlign: 'center',
+    fontFamily: fonts.body,
+    fontWeight: fontWeight.semibold,
+    fontSize: 14,
   },
 });

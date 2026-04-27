@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import authAPI from '../api/auth.api';
 import { setTokens, clearTokens } from '../utils/tokenStorage';
 import { setLogoutCallback } from '../api/client';
+import { queryClient } from '../lib/queryClient';
 
 const AuthContext = createContext();
 
@@ -31,6 +32,7 @@ export const AuthProvider = ({ children }) => {
   // Register logout callback so the API client 401 interceptor can force-logout
   useEffect(() => {
     setLogoutCallback(() => {
+      queryClient.clear();
       setUser(null);
     });
   }, []);
@@ -64,6 +66,7 @@ export const AuthProvider = ({ children }) => {
     try { await authAPI.logout(); } catch {}
     await clearTokens();
     await AsyncStorage.removeItem('spendwise_user');
+    queryClient.clear();
     setUser(null);
   }, []);
 

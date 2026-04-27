@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/Polygon-Blockchain-8247E5?style=flat-square&logo=polygon&logoColor=white" />
   <img src="https://img.shields.io/badge/Groq-LLaMA%203.3-FF6B35?style=flat-square" />
   <img src="https://img.shields.io/badge/PWA-Enabled-5A0FC8?style=flat-square&logo=pwa&logoColor=white" />
+  <img src="https://img.shields.io/badge/React_Native-Expo_54-000020?style=flat-square&logo=expo&logoColor=white" />
 </p>
 
 <p align="center">
@@ -34,9 +35,9 @@
 
 ## 📖 Overview
 
-**SpendWise** is a full-stack AI-powered personal finance management platform built for modern Indian users. It combines intelligent expense tracking, AI-driven financial insights, payment gateway integration (Razorpay), and blockchain-backed transaction auditing — all wrapped in a sleek, dark-themed Progressive Web App.
+**SpendWise** is a full-stack AI-powered personal finance management platform built for modern Indian users. It combines intelligent expense tracking, AI-driven financial insights, payment gateway integration (Razorpay), and blockchain-backed transaction auditing — available as a Progressive Web App and a native mobile app (React Native + Expo).
 
-SpendWise doesn't just track your money — it understands your spending behavior, predicts future budgets, detects anomalies, and provides a tamper-proof audit trail for every transaction.
+SpendWise doesn't just track your money — it understands your spending behavior, predicts future budgets, detects anomalies, and provides a tamper-proof audit trail for every transaction. The same backend powers both the web PWA and the mobile app, sharing a single MongoDB database.
 
 ---
 
@@ -152,6 +153,32 @@ SpendWise doesn't just track your money — it understands your spending behavio
 ---
 
 ## 🛠 Tech Stack
+
+### Mobile (React Native)
+| Technology | Purpose |
+|---|---|
+| **React Native 0.81 + Expo 54** | Cross-platform mobile framework |
+| **Expo Router 6** | File-based navigation (tabs + auth stack) |
+| **TanStack React Query 5** | Server state — transactions, categories, groups, goals, AI |
+| **Axios** | HTTP client (Bearer token, auto-refresh, 401 queue) |
+| **Expo SecureStore** | Encrypted JWT token storage |
+| **AsyncStorage** | User profile persistence |
+| **expo-linear-gradient** | Gradient backgrounds |
+| **expo-blur** | Blur effects |
+| **react-native-svg** | SVG icon rendering + donut charts |
+| **react-native-toast-message** | Toast notifications (success, error, info) |
+| **date-fns** | Date formatting |
+
+#### Mobile API Modules (`mobile/src/api/`)
+| Module | Endpoints |
+|---|---|
+| `auth.api.js` | register, login, verifyOTP, resendOTP, refresh, getMe, updateProfile |
+| `transaction.api.js` | CRUD + summary + stats |
+| `category.api.js` | getAll, create |
+| `ai.api.js` | chat, analysis, insights, score, categorize |
+| `group.api.js` | groups CRUD + members + expenses + balances + settle |
+| `friend.api.js` | getAll, add, remove |
+| `goal.api.js` | CRUD + contribute |
 
 ### Backend
 | Technology | Purpose |
@@ -316,7 +343,31 @@ npm run dev:backend    # → http://localhost:5000
 npm run dev:frontend   # → http://localhost:5173
 ```
 
-### 6. Verify Installation
+### 6. Run the Mobile App (Optional)
+
+```bash
+cd mobile
+
+# Install dependencies
+npm install
+
+# Configure the API URL (create mobile/.env)
+echo "EXPO_PUBLIC_API_URL=http://<your-LAN-IP>:5000/api" > .env
+# Find your LAN IP with: ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Start Expo dev server
+npm start
+
+# Run on iOS simulator
+npm run ios
+
+# Run on Android emulator
+npm run android
+```
+
+> **Note:** Set `EXPO_PUBLIC_API_URL` in `mobile/.env` to your machine's LAN IP. Both device and machine must be on the same Wi-Fi network. In dev mode, if the email service is unavailable, the backend returns the OTP in the response body and the app will display it in a toast automatically.
+
+### 7. Verify Installation
 
 - **Frontend**: Open [http://localhost:5173](http://localhost:5173)
 - **Health Check**: `GET http://localhost:5000/health`
@@ -611,6 +662,53 @@ SpendWise/
 │           ├── global.css             # Global styles + resets
 │           └── variables.css          # CSS custom properties (design tokens)
 │
+├── mobile/                           # React Native + Expo app
+│   ├── app.json                      # Expo config
+│   ├── app/
+│   │   ├── _layout.jsx               # Root layout — providers + auth gate
+│   │   ├── index.jsx                 # Entry redirect
+│   │   ├── (auth)/
+│   │   │   ├── login.jsx             # Login screen
+│   │   │   └── register.jsx          # Registration + OTP verify screen
+│   │   ├── (tabs)/
+│   │   │   ├── dashboard.jsx         # Dashboard — stats + recent transactions
+│   │   │   ├── transactions.jsx      # Transaction list with search + filters
+│   │   │   ├── analytics.jsx         # Charts: donut, health ring, sparkline
+│   │   │   ├── ai.jsx                # AI assistant chat
+│   │   │   └── add.jsx               # Add transaction screen
+│   │   ├── goals.jsx                 # Savings goals
+│   │   ├── groups.jsx                # Group expenses
+│   │   └── settings.jsx              # User settings
+│   ├── src/
+│   │   ├── api/
+│   │   │   ├── client.js             # Axios instance — Bearer token + auto-refresh
+│   │   │   ├── auth.api.js           # Auth API calls
+│   │   │   ├── transaction.api.js    # Transaction API calls
+│   │   │   └── category.api.js       # Category API calls
+│   │   ├── components/
+│   │   │   ├── ui/                   # Design system (BottomNav, Card, Field, etc.)
+│   │   │   ├── StatCard.jsx          # Dashboard stat tile
+│   │   │   ├── TransactionItem.jsx   # Transaction list row
+│   │   │   ├── OTPInput.jsx          # 6-digit OTP input
+│   │   │   ├── LoadingScreen.jsx     # Full-screen loader
+│   │   │   └── ToastConfig.jsx       # Toast theme config
+│   │   ├── context/
+│   │   │   ├── AuthContext.jsx       # Auth state + token management
+│   │   │   └── ThemeContext.jsx      # Dark/light theme
+│   │   ├── hooks/
+│   │   │   ├── useDashboardStats.js  # Dashboard data via React Query
+│   │   │   ├── useTransactions.js    # Transaction list + mutations
+│   │   │   └── useCategories.js      # Category list
+│   │   ├── theme/
+│   │   │   ├── colors.js             # Design token palette
+│   │   │   ├── spacing.js            # Spacing scale
+│   │   │   └── typography.js         # Font scale
+│   │   └── utils/
+│   │       ├── format.js             # INR currency + date formatting
+│   │       ├── tokenStorage.js       # SecureStore token helpers
+│   │       └── seedData.js           # Prototype seed data
+│   └── assets/                       # App icons + splash
+│
 ├── blockchain/                       # Hardhat smart contracts
 │   ├── hardhat.config.js             # Hardhat config (Polygon Mumbai + Mainnet)
 │   ├── contracts/
@@ -736,6 +834,15 @@ npm run dev              # Vite dev server
 npm run build            # Production build
 npm run preview          # Preview production build
 npm run lint             # ESLint check
+```
+
+### Mobile
+
+```bash
+npm start                # Start Expo dev server
+npm run ios              # Run on iOS simulator
+npm run android          # Run on Android emulator
+npm run web              # Run in browser (limited)
 ```
 
 ### Blockchain
