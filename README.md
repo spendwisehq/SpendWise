@@ -236,9 +236,13 @@ SpendWise doesn't just track your money — it understands your spending behavio
 
 ### Prerequisites
 
-- **Node.js** ≥ 18.0.0
-- **MongoDB** (local or [Atlas](https://www.mongodb.com/atlas))
-- **npm** ≥ 9
+| Tool | Min Version | Install |
+|------|-------------|---------|
+| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
+| npm | 9+ | bundled with Node |
+| MongoDB | any | `brew install mongodb-community` |
+| Expo CLI | latest | `npm install -g expo-cli` |
+| Expo Go app | latest | iOS App Store / Google Play |
 
 ### 1. Clone the Repository
 
@@ -247,20 +251,33 @@ git clone https://github.com/spendwisehq/SpendWise.git
 cd SpendWise
 ```
 
-### 2. Install Dependencies
+### 2. Install All Dependencies
+
+From the **repo root**:
 
 ```bash
-# Install all dependencies (backend + frontend)
 npm run install:all
-
-# Or install individually
-cd backend && npm install
-cd ../frontend && npm install
 ```
 
-### 3. Configure Environment Variables
+This installs `backend/`, `frontend/`, and `mobile/` in one shot.
 
-Create a `.env` file in the `backend/` directory:
+For blockchain (optional, only if deploying contracts):
+
+```bash
+cd blockchain && npm install
+```
+
+### 3. Environment Files
+
+You need `.env` files in each sub-directory:
+
+```
+backend/.env
+frontend/.env
+mobile/.env
+```
+
+#### `backend/.env` — key values
 
 ```env
 # ─── Server ───────────────────────────
@@ -314,6 +331,22 @@ API_STARTER_MONTHLY_LIMIT=10000
 API_GROWTH_MONTHLY_LIMIT=100000
 ```
 
+#### `frontend/.env`
+
+```env
+VITE_API_URL=http://localhost:5000/api
+```
+
+#### `mobile/.env`
+
+```env
+EXPO_PUBLIC_API_URL=http://<YOUR_LAN_IP>:5000/api
+```
+
+> **Mobile critical:** Use your machine's LAN IP (e.g. `192.168.1.X`), NOT `localhost`.  
+> Find it: `ipconfig getifaddr en0` (Mac) or `ip addr` (Linux).  
+> Both your computer and phone must be on the **same Wi-Fi network**.
+
 For the **blockchain module**, create a `.env` in `blockchain/`:
 
 ```env
@@ -323,16 +356,28 @@ DEPLOYER_PRIVATE_KEY=0x_your_deployer_private_key
 POLYGONSCAN_API_KEY=your_api_key
 ```
 
-### 4. Seed the Database
+### 4. Start MongoDB
+
+```bash
+brew services start mongodb-community
+```
+
+Verify it's running:
+
+```bash
+brew services list | grep mongodb
+```
+
+### 5. Seed the Database (first run only)
 
 ```bash
 cd backend
 npm run seed
 ```
 
-This populates 20+ default expense/income categories with icons, colors, and keyword mappings.
+Populates 20+ default expense/income categories with icons, colors, and keyword mappings.
 
-### 5. Run the Application
+### 6. Run the Application
 
 ```bash
 # From the root directory — starts both backend and frontend
@@ -343,35 +388,43 @@ npm run dev:backend    # → http://localhost:5000
 npm run dev:frontend   # → http://localhost:5173
 ```
 
-### 6. Run the Mobile App (Optional)
+### 7. Run the Mobile App
 
 ```bash
 cd mobile
-
-# Install dependencies
-npm install
-
-# Configure the API URL (create mobile/.env)
-echo "EXPO_PUBLIC_API_URL=http://<your-LAN-IP>:5000/api" > .env
-# Find your LAN IP with: ifconfig | grep "inet " | grep -v 127.0.0.1
-
-# Start Expo dev server
-npm start
-
-# Run on iOS simulator
-npm run ios
-
-# Run on Android emulator
-npm run android
+npx expo start
 ```
 
-> **Note:** Set `EXPO_PUBLIC_API_URL` in `mobile/.env` to your machine's LAN IP. Both device and machine must be on the same Wi-Fi network. In dev mode, if the email service is unavailable, the backend returns the OTP in the response body and the app will display it in a toast automatically.
+- Scan the QR code with **Expo Go** (iOS) or the Camera app (Android)
+- Press `i` for iOS simulator, `a` for Android emulator (requires Xcode/Android Studio)
 
-### 7. Verify Installation
+#### Common mobile issues
+
+| Problem | Fix |
+|---------|-----|
+| Login/register times out | Wrong IP in `mobile/.env` — update `EXPO_PUBLIC_API_URL` to your LAN IP |
+| QR not scanning | Ensure phone and Mac are on same Wi-Fi |
+| Metro bundler stuck | Press `r` in terminal to reload, or use `npx expo start --clear` |
+| iOS simulator won't open | Open Xcode once to accept license, then retry |
+
+> In dev mode, if the email service is unavailable, the backend returns the OTP in the response body and the app will display it in a toast automatically.
+
+### 8. Verify Installation
 
 - **Frontend**: Open [http://localhost:5173](http://localhost:5173)
 - **Health Check**: `GET http://localhost:5000/health`
 - **Metrics**: `GET http://localhost:5000/metrics`
+
+### Quick Reference
+
+| Service | Command | URL |
+|---------|---------|-----|
+| Backend | `cd backend && npm run dev` | http://localhost:5000 |
+| Frontend | `cd frontend && npm run dev` | http://localhost:5173 |
+| Mobile | `cd mobile && npx expo start` | Expo Go app |
+| Both (web) | `npm run dev` (root) | — |
+| MongoDB | `brew services start mongodb-community` | localhost:27017 |
+| Hardhat node | `cd blockchain && npx hardhat node` | localhost:8545 |
 
 ---
 
