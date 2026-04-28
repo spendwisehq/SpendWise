@@ -108,7 +108,6 @@ const Groups = () => {
         </div>
       )}
 
-      {/* Create Group Modal */}
       {showCreate && (
         <div className="g-overlay" onClick={() => setShowCreate(false)}>
           <div className="g-modal" onClick={e => e.stopPropagation()}>

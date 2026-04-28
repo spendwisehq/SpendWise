@@ -23,12 +23,12 @@ const COOKIE_BASE = {
 const setAuthCookies = (res, accessToken, refreshToken) => {
   res.cookie('sw_access', accessToken, {
     ...COOKIE_BASE,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7d — matches JWT_EXPIRES_IN
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   res.cookie('sw_refresh', refreshToken, {
     ...COOKIE_BASE,
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30d — matches JWT_REFRESH_EXPIRES_IN
-    path:   '/api/auth', // only sent to auth endpoints
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path:   '/api/auth',
   });
 };
 
@@ -41,7 +41,7 @@ const clearAuthCookies = (res) => {
 const createTransporter = () => nodemailer.createTransport({
   host: env.email.host,
   port: env.email.port,
-  secure: env.email.port === 465, // true for 465, false for other ports
+  secure: env.email.port === 465,
   auth: {
     user: env.email.user,
     pass: env.email.pass,
@@ -110,8 +110,8 @@ const register = async (req, res, next) => {
       existing.name     = name;
       existing.password = password;
       existing.currency = currency || 'INR';
-      existing.emailVerificationOTP     = otp;
-      existing.emailVerificationExpires = otpExpires;
+      existing.emailVerifyOTP       = otp;
+      existing.emailVerifyOTPExpiry = otpExpires;
       await existing.save();
       user = existing;
     } else {
@@ -120,8 +120,8 @@ const register = async (req, res, next) => {
         currency:  currency || 'INR',
         monthlyIncome: 0,
         isEmailVerified: false,
-        emailVerificationOTP:     otp,
-        emailVerificationExpires: otpExpires,
+        emailVerifyOTP:       otp,
+        emailVerifyOTPExpiry: otpExpires,
       });
     }
 
@@ -158,7 +158,7 @@ const verifyOTP = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Email and OTP are required.' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+emailVerificationOTP +emailVerificationExpires');
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+emailVerifyOTP +emailVerifyOTPExpiry');
     if (!user) {
       return res.status(404).json({ success: false, message: 'Account not found.' });
     }
@@ -167,18 +167,18 @@ const verifyOTP = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Email is already verified.' });
     }
 
-    if (!user.emailVerificationOTP || user.emailVerificationOTP !== otp.toString()) {
+    if (!user.emailVerifyOTP || user.emailVerifyOTP !== otp.toString()) {
       return res.status(400).json({ success: false, message: 'Invalid verification code.' });
     }
 
-    if (!user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
+    if (!user.emailVerifyOTPExpiry || user.emailVerifyOTPExpiry < new Date()) {
       return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new one.' });
     }
 
-    user.isEmailVerified          = true;
-    user.emailVerificationOTP     = undefined;
-    user.emailVerificationExpires = undefined;
-    user.lastLoginAt              = new Date();
+    user.isEmailVerified      = true;
+    user.emailVerifyOTP       = undefined;
+    user.emailVerifyOTPExpiry = undefined;
+    user.lastLoginAt          = new Date();
 
     const accessToken  = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
@@ -214,8 +214,8 @@ const resendOTP = async (req, res, next) => {
     const otp        = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    user.emailVerificationOTP     = otp;
-    user.emailVerificationExpires = otpExpires;
+    user.emailVerifyOTP       = otp;
+    user.emailVerifyOTPExpiry = otpExpires;
     await user.save({ validateBeforeSave: false });
 
     try {
@@ -248,8 +248,8 @@ const login = async (req, res, next) => {
     if (!user.isEmailVerified) {
       const otp        = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-      user.emailVerificationOTP     = otp;
-      user.emailVerificationExpires = otpExpires;
+      user.emailVerifyOTP       = otp;
+      user.emailVerifyOTPExpiry = otpExpires;
       await user.save({ validateBeforeSave: false });
 
       try { await sendOTPEmail(user.email, otp, user.name); } catch {}
@@ -281,7 +281,6 @@ const login = async (req, res, next) => {
 // ── POST /api/auth/refresh ───────────────────────────────────────────────────
 const refreshTokenFn = async (req, res, next) => {
   try {
-    // Read refresh token from cookie first, then body as fallback (for API clients)
     const token = req.cookies?.sw_refresh || req.body?.refreshToken;
     if (!token) return res.status(401).json({ success: false, message: 'Refresh token required.' });
 
@@ -291,7 +290,6 @@ const refreshTokenFn = async (req, res, next) => {
 
     const user = await User.findById(decoded.id).select('+refreshToken');
     if (!user || user.refreshToken !== token) {
-      // Token reuse detected — invalidate all tokens for this user (rotation violation)
       if (user) {
         user.refreshToken = null;
         await user.save({ validateBeforeSave: false });

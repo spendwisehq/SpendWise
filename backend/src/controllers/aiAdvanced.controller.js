@@ -1,4 +1,7 @@
 // backend/src/controllers/aiAdvanced.controller.js
+// STAGE 4 ADDITIONS:
+//   getTaxDeductions             — Feature 3: Tax Deduction Identifier
+//   getBillNegotiationSuggestions — Feature 4: Bill Negotiation Suggester
 
 const { askLLM, askLLMJSON } = require('../services/groq.service');
 const { trackTokens }        = require('../services/tokenTracking.service');
@@ -90,13 +93,13 @@ const predictBudget = async (req, res, next) => {
 
     if (!existing && prediction.totalPredicted) {
       await Budget.create({
-        userId:       req.user._id,
-        month:        nextMonth.getMonth() + 1,
-        year:         nextMonth.getFullYear(),
-        totalBudget:  prediction.totalPredicted,
+        userId:        req.user._id,
+        month:         nextMonth.getMonth() + 1,
+        year:          nextMonth.getFullYear(),
+        totalBudget:   prediction.totalPredicted,
         isAiGenerated: true,
-        aiInsights:   prediction.advice,
-        categories:   (prediction.categories || []).map(c => ({
+        aiInsights:    prediction.advice,
+        categories:    (prediction.categories || []).map(c => ({
           categoryName: c.name,
           allocated:    c.predicted,
           spent:        0,
@@ -107,9 +110,9 @@ const predictBudget = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       data: {
-        nextMonth: nextMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' }),
+        nextMonth:    nextMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' }),
         prediction,
-        history: history.map(h => ({ label: h.label, expense: h.expense, income: h.income })),
+        history:      history.map(h => ({ label: h.label, expense: h.expense, income: h.income })),
         budgetCreated: !existing,
       },
     });
@@ -140,7 +143,6 @@ const detectAnomalies = async (req, res, next) => {
       });
     }
 
-    // Calculate stats per category
     const categoryStats = {};
     transactions.filter(t => t.type === 'expense').forEach(t => {
       const k = t.categoryName || 'Uncategorized';
@@ -155,7 +157,6 @@ const detectAnomalies = async (req, res, next) => {
       categoryAvg[k] = { avg, std, count: amounts.length };
     });
 
-    // Flag transactions > 2 standard deviations above mean
     const flagged = transactions.filter(t => {
       const stats = categoryAvg[t.categoryName];
       if (!stats || stats.count < 2) return false;
@@ -174,6 +175,7 @@ const detectAnomalies = async (req, res, next) => {
     const { data: explanations, usage } = await askLLMJSON(prompts.system, prompts.user, { maxTokens: 1024 });
     await trackTokens(req.user._id, usage);
 
+
     const anomalies = flagged.map((t, i) => ({
       transactionId: t._id,
       date:          t.date,
@@ -186,19 +188,14 @@ const detectAnomalies = async (req, res, next) => {
 
     await Promise.all(flagged.map(t =>
       Transaction.findByIdAndUpdate(t._id, {
-        'aiData.isAnomaly': true,
+        'aiData.isAnomaly':     true,
         'aiData.anomalyReason': anomalies.find(a => a.transactionId?.toString() === t._id?.toString())?.reason || 'Unusual amount',
       })
     ));
 
     return res.status(200).json({
       success: true,
-      data: {
-        anomalies,
-        totalScanned:  transactions.length,
-        totalFlagged:  flagged.length,
-        period:        `Last ${days} days`,
-      },
+      data: { anomalies, totalScanned: transactions.length, totalFlagged: flagged.length, period: `Last ${days} days` },
     });
   } catch (error) {
     next(error);
@@ -227,7 +224,6 @@ const detectSubscriptions = async (req, res, next) => {
       });
     }
 
-    // Group by merchant + similar amount
     const merchantGroups = {};
     transactions.forEach(t => {
       const key = (t.merchant || t.description || 'unknown').toLowerCase().trim();
@@ -247,7 +243,6 @@ const detectSubscriptions = async (req, res, next) => {
           gaps.push(Math.round((dates[i] - dates[i-1]) / (1000 * 60 * 60 * 24)));
         }
         const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-
         return { merchant, txns, avgAmt, isConsistent, avgGap, count: txns.length };
       })
       .filter(c => c.isConsistent);
@@ -275,17 +270,17 @@ const detectSubscriptions = async (req, res, next) => {
 
         if (!exists) {
           const recurring = await RecurringTransaction.create({
-            userId:       req.user._id,
-            title:        sub.merchant,
-            merchant:     sub.merchant,
-            amount:       sub.amount,
-            currency:     req.user.currency || 'INR',
-            categoryName: sub.category || 'Subscription',
-            frequency:    sub.frequency || 'monthly',
-            startDate:    new Date(),
-            nextDueDate:  sub.nextExpected ? new Date(sub.nextExpected) : new Date(),
-            isActive:     true,
-            autoDetected: true,
+            userId:        req.user._id,
+            title:         sub.merchant,
+            merchant:      sub.merchant,
+            amount:        sub.amount,
+            currency:      req.user.currency || 'INR',
+            categoryName:  sub.category || 'Subscription',
+            frequency:     sub.frequency || 'monthly',
+            startDate:     new Date(),
+            nextDueDate:   sub.nextExpected ? new Date(sub.nextExpected) : new Date(),
+            isActive:      true,
+            autoDetected:  true,
           });
           saved.push(recurring._id);
         }
@@ -295,10 +290,10 @@ const detectSubscriptions = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       data: {
-        subscriptions:  Array.isArray(detected) ? detected : [],
-        autoSaved:      saved.length,
-        totalScanned:   transactions.length,
-        candidates:     candidates.length,
+        subscriptions: Array.isArray(detected) ? detected : [],
+        autoSaved:     saved.length,
+        totalScanned:  transactions.length,
+        candidates:    candidates.length,
       },
     });
   } catch (error) {
@@ -336,12 +331,7 @@ const spendingForecastFn = async (req, res, next) => {
       success: true,
       data: {
         forecast,
-        history: history.map(h => ({
-          label:   h.label,
-          expense: h.expense,
-          income:  h.income,
-          savings: h.savings,
-        })),
+        history: history.map(h => ({ label: h.label, expense: h.expense, income: h.income, savings: h.savings })),
         forecastMonths: months,
       },
     });
@@ -367,32 +357,13 @@ const scoreHistory = async (req, res, next) => {
 
     const scores = history.map(h => {
       if (h.count === 0) return { label: h.label, score: null };
-
       const savingsRate  = h.income > 0 ? (h.savings / h.income) * 100 : 0;
       const savingsScore = Math.min(25, Math.max(0, savingsRate * 0.5));
       const spendScore   = h.expense > 0 ? Math.min(25, 25 - (h.expense / (user.monthlyIncome || h.expense)) * 10) : 20;
       const consistency  = Math.min(25, h.count * 2);
       const total        = Math.round(savingsScore + spendScore + consistency + 15);
-
-      const grade =
-        total >= 90 ? 'A+' :
-        total >= 80 ? 'A'  :
-        total >= 70 ? 'B+' :
-        total >= 60 ? 'B'  :
-        total >= 50 ? 'C+' :
-        total >= 40 ? 'C'  : 'D';
-
-      return {
-        label:       h.label,
-        month:       h.month,
-        year:        h.year,
-        score:       Math.min(100, Math.max(0, total)),
-        grade,
-        expense:     h.expense,
-        income:      h.income,
-        savings:     h.savings,
-        savingsRate: parseFloat(savingsRate.toFixed(1)),
-      };
+      const grade = total >= 90 ? 'A+' : total >= 80 ? 'A' : total >= 70 ? 'B+' : total >= 60 ? 'B' : total >= 50 ? 'C+' : total >= 40 ? 'C' : 'D';
+      return { label: h.label, month: h.month, year: h.year, score: Math.min(100, Math.max(0, total)), grade, expense: h.expense, income: h.income, savings: h.savings, savingsRate: parseFloat(savingsRate.toFixed(1)) };
     }).filter(s => s.score !== null);
 
     const trend = scores.length >= 2
@@ -440,6 +411,124 @@ const listSubscriptions = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
+      data: { subscriptions, summary: { total: subscriptions.length, totalMonthly, totalAnnual } },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 4 — Feature 3: Tax Deduction Identifier
+// GET /api/ai/advanced/tax-deductions
+// Scans the current financial year's transactions for 80C / 80D items.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Section 80C and 80D keyword maps (Indian tax law)
+const TAX_KEYWORDS = {
+  '80C': {
+    limit: 150000,
+    items: [
+      { keywords: ['lic', 'life insurance', 'jeevan'], label: 'LIC / Life Insurance Premium' },
+      { keywords: ['ppf', 'public provident'],         label: 'PPF Contribution' },
+      { keywords: ['elss', 'tax saver mutual', 'nsc'], label: 'ELSS / NSC Investment' },
+      { keywords: ['epf', 'provident fund', 'pf'],     label: 'EPF Contribution' },
+      { keywords: ['school fee', 'tuition fee', 'education fee', 'college fee'], label: 'Children\'s Tuition Fees' },
+      { keywords: ['home loan', 'principal', 'emi'],   label: 'Home Loan Principal Repayment' },
+      { keywords: ['sukanya', 'ssf'],                  label: 'Sukanya Samriddhi Scheme' },
+    ],
+  },
+  '80D': {
+    limit: 25000,   // 50000 for senior citizens — simplified to base limit
+    items: [
+      { keywords: ['health insurance', 'mediclaim', 'health policy', 'star health', 'hdfc ergo', 'bajaj allianz health'], label: 'Health Insurance Premium' },
+      { keywords: ['medical checkup', 'preventive checkup', 'health checkup'], label: 'Preventive Health Check-up' },
+      { keywords: ['hospital', 'medical bill', 'medicine', 'pharmacy', 'doctor fee', 'clinic'], label: 'Medical Expenses (dependent senior citizen)' },
+    ],
+  },
+};
+
+const getTaxDeductions = async (req, res, next) => {
+  try {
+    // Financial year runs April → March in India
+    const now     = new Date();
+    const fyStart = now.getMonth() >= 3                            // April = month 3 (0-indexed)
+      ? new Date(now.getFullYear(), 3, 1)                         // This FY
+      : new Date(now.getFullYear() - 1, 3, 1);                    // Previous FY
+    const fyEnd   = new Date(fyStart.getFullYear() + 1, 2, 31, 23, 59, 59); // 31 March
+
+    const transactions = await Transaction.find({
+      userId:    req.user._id,
+      isDeleted: false,
+      type:      'expense',
+      date:      { $gte: fyStart, $lte: fyEnd },
+    }).lean();
+
+    const user = await User.findById(req.user._id).lean();
+
+    // ── Keyword matching ──────────────────────────────────────────────────────
+    const matched80C = [];
+    const matched80D = [];
+
+    transactions.forEach(t => {
+      const text = `${(t.merchant || '')} ${(t.description || '')} ${(t.notes || '')} ${(t.categoryName || '')}`.toLowerCase();
+
+      TAX_KEYWORDS['80C'].items.forEach(item => {
+        if (item.keywords.some(kw => text.includes(kw))) {
+          matched80C.push({ ...t, taxLabel: item.label, section: '80C' });
+        }
+      });
+
+      TAX_KEYWORDS['80D'].items.forEach(item => {
+        if (item.keywords.some(kw => text.includes(kw))) {
+          matched80D.push({ ...t, taxLabel: item.label, section: '80D' });
+        }
+      });
+    });
+
+    const total80C = matched80C.reduce((s, t) => s + t.amount, 0);
+    const total80D = matched80D.reduce((s, t) => s + t.amount, 0);
+
+    const eligible80C = Math.min(total80C, TAX_KEYWORDS['80C'].limit);
+    const eligible80D = Math.min(total80D, TAX_KEYWORDS['80D'].limit);
+    const totalEligible = eligible80C + eligible80D;
+
+    // Tax saved estimate (30% slab — most conservative estimate)
+    const estimatedTaxSaved = Math.round(totalEligible * 0.30);
+
+    // ── AI summary ────────────────────────────────────────────────────────────
+    const systemPrompt = `You are an expert Indian tax advisor. Analyse the user's deductible transactions and generate a helpful summary. Be clear, practical, and encouraging. Respond ONLY with JSON.`;
+
+    const userPrompt = `User: ${user.name}
+Financial Year: ${fyStart.getFullYear()}-${fyEnd.getFullYear()}
+Monthly Income: ₹${user.monthlyIncome || 0}
+
+Section 80C transactions found (limit ₹1,50,000):
+${matched80C.length === 0 ? 'None detected' : matched80C.map(t => `- ${t.taxLabel}: ₹${t.amount} on ${new Date(t.date).toLocaleDateString('en-IN')} (${t.merchant || t.description})`).join('\n')}
+Total 80C: ₹${total80C.toFixed(0)} | Eligible: ₹${eligible80C.toFixed(0)}
+
+Section 80D transactions found (limit ₹25,000):
+${matched80D.length === 0 ? 'None detected' : matched80D.map(t => `- ${t.taxLabel}: ₹${t.amount} on ${new Date(t.date).toLocaleDateString('en-IN')} (${t.merchant || t.description})`).join('\n')}
+Total 80D: ₹${total80D.toFixed(0)} | Eligible: ₹${eligible80D.toFixed(0)}
+
+Total eligible deduction: ₹${totalEligible.toFixed(0)}
+Estimated tax saved (30% slab): ₹${estimatedTaxSaved.toLocaleString('en-IN')}
+
+Respond with JSON:
+{
+  "summary": "2-3 sentence overall summary",
+  "readinessScore": 0-100,
+  "gaps": [
+    { "section": "80C or 80D", "item": "what to invest in", "potentialSaving": number, "tip": "specific advice" }
+  ],
+  "topTip": "single most important tax action to take right now",
+  "disclaimer": "one sentence standard disclaimer"
+}`;
+
+    const aiSummary = await askClaudeJSON(systemPrompt, userPrompt, 1024);
+
+    return res.status(200).json({
+      success: true,
       data: {
         subscriptions,
         summary: { total: subscriptions.length, totalMonthly, totalAnnual },
@@ -457,4 +546,6 @@ module.exports = {
   spendingForecast: spendingForecastFn,
   scoreHistory,
   listSubscriptions,
+  getTaxDeductions,
+  getBillNegotiationSuggestions,
 };

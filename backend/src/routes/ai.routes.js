@@ -1,4 +1,5 @@
 // backend/src/routes/ai.routes.js
+// STAGE 4: added GET /goal-coach
 
 const express = require('express');
 const router  = express.Router();
@@ -12,6 +13,7 @@ const {
   chatWithAI,
   chatWithAIStream,
   categorizeBatch,
+  getGoalCoachPlan,   // STAGE 4
 } = require('../controllers/ai.controller');
 
 const { protect } = require('../middleware/auth.middleware');
@@ -40,5 +42,9 @@ router.get('/score',             getFinancialScore);
 // Chat
 router.post('/chat',             chatValidator,             chatWithAI);
 router.post('/chat/stream',      chatValidator,             chatWithAIStream);
+
+// STAGE 4 — AI Goal Coach
+// GET /api/ai/goal-coach?goalName=Emergency+Fund&targetAmount=100000&currentSavings=30000&targetDate=2026-12-31
+router.get('/goal-coach',        getGoalCoachPlan);
 
 module.exports = router;
